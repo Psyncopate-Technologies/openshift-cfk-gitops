@@ -77,6 +77,7 @@ output "pod_cidr" {
 output "admin_username" {
   description = "Cluster admin username"
   value       = module.rosa_cluster.cluster_admin_username
+  sensitive   = true
 }
 
 output "admin_password" {
@@ -88,6 +89,7 @@ output "admin_password" {
 output "oc_login_command" {
   description = "Command to login to the cluster"
   value       = "oc login ${module.rosa_cluster.api_url} --username=${module.rosa_cluster.cluster_admin_username} --password=<password>"
+  sensitive   = true
 }
 
 # =============================================================================
