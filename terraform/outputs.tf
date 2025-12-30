@@ -13,37 +13,42 @@ output "environment" {
 
 output "cluster_id" {
   description = "ROSA cluster ID"
-  value       = rhcs_cluster_rosa_classic.cluster.id
+  value       = module.rosa_cluster.cluster_id
 }
 
 output "cluster_name" {
   description = "ROSA cluster name"
-  value       = rhcs_cluster_rosa_classic.cluster.name
+  value       = var.cluster_name
 }
 
 output "api_url" {
   description = "OpenShift API URL"
-  value       = rhcs_cluster_rosa_classic.cluster.api_url
+  value       = module.rosa_cluster.api_url
 }
 
 output "console_url" {
   description = "OpenShift Console URL"
-  value       = rhcs_cluster_rosa_classic.cluster.console_url
+  value       = module.rosa_cluster.console_url
 }
 
 output "domain" {
   description = "Cluster base domain"
-  value       = rhcs_cluster_rosa_classic.cluster.domain
+  value       = module.rosa_cluster.domain
 }
 
 output "apps_domain" {
   description = "Applications domain (for routes)"
-  value       = "apps.${rhcs_cluster_rosa_classic.cluster.domain}"
+  value       = "apps.${module.rosa_cluster.domain}"
 }
 
 output "infra_id" {
   description = "Cluster infrastructure ID"
-  value       = rhcs_cluster_rosa_classic.cluster.id
+  value       = module.rosa_cluster.infra_id
+}
+
+output "cluster_state" {
+  description = "Cluster state"
+  value       = module.rosa_cluster.state
 }
 
 # =============================================================================
@@ -71,18 +76,18 @@ output "pod_cidr" {
 
 output "admin_username" {
   description = "Cluster admin username"
-  value       = var.create_admin_user ? "cluster-admin" : null
+  value       = module.rosa_cluster.cluster_admin_username
 }
 
 output "admin_password" {
   description = "Cluster admin password"
-  value       = var.create_admin_user ? (var.admin_password != "" ? var.admin_password : try(random_password.admin[0].result, null)) : null
+  value       = module.rosa_cluster.cluster_admin_password
   sensitive   = true
 }
 
 output "oc_login_command" {
   description = "Command to login to the cluster"
-  value       = var.create_admin_user ? "oc login ${rhcs_cluster_rosa_classic.cluster.api_url} --username=cluster-admin --password=<password>" : "oc login ${rhcs_cluster_rosa_classic.cluster.api_url}"
+  value       = "oc login ${module.rosa_cluster.api_url} --username=${module.rosa_cluster.cluster_admin_username} --password=<password>"
 }
 
 # =============================================================================
@@ -104,7 +109,7 @@ output "dns_setup_instructions" {
     To use custom domain ${var.custom_domain}:
 
     Create a wildcard CNAME record:
-    *.${var.custom_domain} -> *.apps.${rhcs_cluster_rosa_classic.cluster.domain}
+    *.${var.custom_domain} -> *.apps.${module.rosa_cluster.domain}
 
     Access URLs after DNS setup:
     - Control Center: https://controlcenter.${var.custom_domain}
