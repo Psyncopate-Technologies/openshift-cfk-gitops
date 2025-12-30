@@ -19,7 +19,7 @@ fsGroup:
   type: MustRunAs
   ranges:
     - min: 1000
-      max: 1000
+      max: 1001
 priority: null
 readOnlyRootFilesystem: false
 requiredDropCapabilities:
@@ -27,14 +27,14 @@ requiredDropCapabilities:
 runAsUser:
   type: MustRunAsRange
   uidRangeMin: 1000
-  uidRangeMax: 1000
+  uidRangeMax: 1001
 seLinuxContext:
   type: MustRunAs
 supplementalGroups:
   type: MustRunAs
   ranges:
     - min: 1000
-      max: 1000
+      max: 1001
 users:
   - system:serviceaccount:confluent:default
   - system:serviceaccount:confluent:kafka
@@ -44,7 +44,7 @@ users:
   - system:serviceaccount:confluent:ksqldb
   - system:serviceaccount:confluent:controlcenter
   - system:serviceaccount:confluent:kafkarestproxy
-  - system:serviceaccount:confluent-operator:confluent-for-kubernetes
+  - system:serviceaccount:confluent:confluent-for-kubernetes
 groups: []
 volumes:
   - configMap

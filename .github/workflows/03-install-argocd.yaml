@@ -124,6 +124,28 @@ jobs:
             sleep 10
           done
 
+      - name: Grant ArgoCD Cluster-Wide Permissions
+        run: |
+          echo "Granting ArgoCD application controller permissions to manage confluent namespace..."
+
+          # Create ClusterRoleBinding for ArgoCD to manage resources cluster-wide
+          cat <<EOF | oc apply -f -
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: openshift-gitops-argocd-application-controller-cluster-admin
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-admin
+          subjects:
+          - kind: ServiceAccount
+            name: openshift-gitops-argocd-application-controller
+            namespace: openshift-gitops
+          EOF
+
+          echo "ArgoCD application controller granted cluster-admin permissions"
+
       - name: Create Custom Domain Route for ArgoCD
         run: |
           # Determine custom domain based on cluster name
