@@ -24,7 +24,6 @@ For a cost-effective test cluster (~$15-20/day), run these workflows in order:
 |---|----------|-------------|----------|
 | 00 | **provision-rosa** | Create ROSA cluster | ~40 min |
 | 02 | **configure-cluster** | Namespaces, SCCs | ~2 min |
-| 03 | **mirror-images** (Optional) | Mirror images to ECR | ~10 min |
 | 06 | **deploy-cfk-operator** | CFK Operator via Helm | ~5 min |
 | 08 | **deploy-confluent-platform** | All CP components | ~15 min |
 
