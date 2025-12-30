@@ -6,7 +6,7 @@ Deploy Confluent Platform on Red Hat OpenShift (ROSA) using GitHub Actions workf
 
 This project deploys Confluent Platform 8.1.1 on a ROSA (Red Hat OpenShift Service on AWS) cluster using:
 
-- **ROSA CLI:** Automated cluster provisioning via GitHub Actions
+- **ROSA CLI or Terraform:** Automated cluster provisioning via GitHub Actions
 - **CFK Operator:** Confluent for Kubernetes 3.1.1
 - **KRaft Mode:** No ZooKeeper dependency
 - **Docker Hub:** Direct image pulls (no ECR mirroring required)
@@ -69,18 +69,35 @@ This project deploys Confluent Platform 8.1.1 on a ROSA (Red Hat OpenShift Servi
 
 ### Deployment Options
 
+#### Cluster Provisioning
+
+Choose one method to provision your ROSA cluster:
+
+| Method | Workflow | Best For |
+|--------|----------|----------|
+| **CLI** | `01-provision-rosa` | Quick setup, simple use cases |
+| **Terraform** | `01-provision-rosa-terraform` | Production, state management, IaC maturity |
+
+**Terraform Benefits:**
+- State tracking and drift detection
+- Plan/review before apply
+- Easier cleanup with `terraform destroy`
+- Better for multi-cluster management
+
+See [terraform/README.md](terraform/README.md) for Terraform-specific documentation.
+
 #### Option A: Direct Deployment (Simple)
 
 Run workflows in order via GitHub Actions:
 
-1. **01-provision-rosa** - Create ROSA cluster (~40 min)
+1. **01-provision-rosa** (or **01-provision-rosa-terraform**) - Create ROSA cluster (~40 min)
 2. **02-configure-cluster** - Configure namespaces and SCCs (~2 min)
 3. **03-deploy-cfk-operator** - Install CFK Operator (~5 min)
 4. **04-deploy-confluent-platform** - Deploy all components (~15 min)
 
 #### Option B: GitOps with ArgoCD (Recommended for Production)
 
-1. **01-provision-rosa** - Create ROSA cluster (~40 min)
+1. **01-provision-rosa** (or **01-provision-rosa-terraform**) - Create ROSA cluster (~40 min)
 2. **02-configure-cluster** - Configure namespaces and SCCs (~2 min)
 3. **05-install-argocd** - Install ArgoCD (~5 min)
 4. **06-deploy-argocd-apps** - Deploy via ArgoCD (~10 min)
@@ -136,8 +153,9 @@ See [.github/workflows/README.md](.github/workflows/README.md) for detailed work
 
 ```
 openshift-cfk-gitops/
-├── .github/workflows/          # GitHub Actions workflows
-│   ├── 01-provision-rosa.yaml
+├── .github/workflows/              # GitHub Actions workflows
+│   ├── 01-provision-rosa.yaml      # CLI-based provisioning
+│   ├── 01-provision-rosa-terraform.yaml  # Terraform provisioning
 │   ├── 02-configure-cluster.yaml
 │   ├── 03-deploy-cfk-operator.yaml
 │   ├── 04-deploy-confluent-platform.yaml
@@ -145,12 +163,17 @@ openshift-cfk-gitops/
 │   ├── 06-deploy-argocd-apps.yaml
 │   ├── 99-deprovision-rosa.yaml
 │   └── README.md
+├── terraform/                      # Terraform configuration
+│   ├── main.tf                     # ROSA cluster resources
+│   ├── variables.tf                # Input variables
+│   ├── outputs.tf                  # Output values
+│   └── README.md                   # Terraform docs
 ├── env/
 │   └── dev/
-│       ├── argocd/            # ArgoCD Application manifests
-│       ├── cluster-config/     # Namespace and SCC definitions
-│       └── confluent-platform/ # Confluent Platform manifests
-└── docs/                       # Documentation
+│       ├── argocd/                 # ArgoCD Application manifests
+│       ├── cluster-config/         # Namespace and SCC definitions
+│       └── confluent-platform/     # Confluent Platform manifests
+└── docs/                           # Documentation
 ```
 
 ## Cost Estimates

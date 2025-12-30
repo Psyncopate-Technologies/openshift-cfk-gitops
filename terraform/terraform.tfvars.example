@@ -1,0 +1,60 @@
+# =============================================================================
+# ROSA Cluster Configuration
+# Copy this file to terraform.tfvars and fill in your values
+# =============================================================================
+
+# Cluster name (must be lowercase, start with letter)
+cluster_name = "cfk-test"
+
+# OpenShift version
+openshift_version = "4.14.0"
+
+# AWS region
+aws_region = "us-east-1"
+
+# =============================================================================
+# Compute Configuration
+# =============================================================================
+
+# Instance type for worker nodes
+compute_machine_type = "m5.xlarge"
+
+# Number of worker nodes
+compute_nodes = 2
+
+# Multi-AZ deployment (increases cost but provides HA)
+multi_az = false
+
+# =============================================================================
+# Network Configuration
+# =============================================================================
+
+machine_cidr = "10.0.0.0/16"
+service_cidr = "172.30.0.0/16"
+pod_cidr     = "10.128.0.0/14"
+host_prefix  = 23
+
+# =============================================================================
+# Authentication
+# =============================================================================
+
+# Red Hat Cloud Services token (get from https://cloud.redhat.com/openshift/token/rosa)
+# Can also be set via TF_VAR_rhcs_token environment variable
+# rhcs_token = "your-token-here"
+
+# Create admin user
+create_admin_user = true
+
+# Admin password (leave empty to auto-generate)
+# admin_password = ""
+
+# =============================================================================
+# Tags
+# =============================================================================
+
+tags = {
+  Project     = "confluent-platform"
+  ManagedBy   = "terraform"
+  Environment = "dev"
+  Owner       = "your-name"
+}

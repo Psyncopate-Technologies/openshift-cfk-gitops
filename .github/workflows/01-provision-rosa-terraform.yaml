@@ -1,0 +1,201 @@
+name: 01-Provision ROSA (Terraform)
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_name:
+        description: 'Cluster name'
+        required: true
+        default: 'cfk-test'
+      action:
+        description: 'Terraform action'
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+        default: 'plan'
+      compute_nodes:
+        description: 'Number of compute nodes'
+        required: true
+        default: '2'
+      instance_type:
+        description: 'EC2 instance type'
+        required: true
+        type: choice
+        options:
+          - m5.xlarge
+          - m5.2xlarge
+          - m5.4xlarge
+        default: 'm5.xlarge'
+      multi_az:
+        description: 'Multi-AZ deployment'
+        required: true
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-east-1
+  TF_VAR_cluster_name: ${{ github.event.inputs.cluster_name }}
+  TF_VAR_compute_nodes: ${{ github.event.inputs.compute_nodes }}
+  TF_VAR_compute_machine_type: ${{ github.event.inputs.instance_type }}
+  TF_VAR_multi_az: ${{ github.event.inputs.multi_az }}
+  TF_VAR_aws_region: us-east-1
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  terraform:
+    name: Terraform ${{ github.event.inputs.action }}
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: terraform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: Terraform Init
+        id: init
+        run: terraform init
+        env:
+          TF_VAR_rhcs_token: ${{ secrets.RHCS_TOKEN }}
+
+      - name: Terraform Format Check
+        id: fmt
+        run: terraform fmt -check
+        continue-on-error: true
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        if: github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
+        run: |
+          terraform plan \
+            -var="rhcs_token=${{ secrets.RHCS_TOKEN }}" \
+            -var="admin_password=${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            -out=tfplan \
+            -no-color
+        continue-on-error: true
+
+      - name: Upload Plan
+        if: github.event.inputs.action == 'plan'
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan-${{ github.event.inputs.cluster_name }}
+          path: terraform/tfplan
+          retention-days: 7
+
+      - name: Terraform Apply
+        id: apply
+        if: github.event.inputs.action == 'apply'
+        run: |
+          terraform apply -auto-approve tfplan
+        env:
+          TF_VAR_rhcs_token: ${{ secrets.RHCS_TOKEN }}
+          TF_VAR_admin_password: ${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}
+
+      - name: Terraform Destroy
+        id: destroy
+        if: github.event.inputs.action == 'destroy'
+        run: |
+          terraform destroy \
+            -var="rhcs_token=${{ secrets.RHCS_TOKEN }}" \
+            -var="admin_password=${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            -auto-approve
+        env:
+          TF_VAR_rhcs_token: ${{ secrets.RHCS_TOKEN }}
+
+      - name: Get Outputs
+        id: outputs
+        if: github.event.inputs.action == 'apply'
+        run: |
+          echo "api_url=$(terraform output -raw api_url)" >> $GITHUB_OUTPUT
+          echo "console_url=$(terraform output -raw console_url)" >> $GITHUB_OUTPUT
+          echo "apps_domain=$(terraform output -raw apps_domain)" >> $GITHUB_OUTPUT
+
+      - name: Save Cluster Configuration
+        if: github.event.inputs.action == 'apply'
+        run: |
+          mkdir -p ../cluster-config
+          terraform output -json > ../cluster-config/terraform-outputs.json
+
+          cat > ../cluster-config/config.env << EOF
+          CLUSTER_NAME=${{ github.event.inputs.cluster_name }}
+          API_URL=$(terraform output -raw api_url)
+          CONSOLE_URL=$(terraform output -raw console_url)
+          APPS_DOMAIN=$(terraform output -raw apps_domain)
+          EOF
+
+      - name: Upload Cluster Configuration
+        if: github.event.inputs.action == 'apply'
+        uses: actions/upload-artifact@v4
+        with:
+          name: rosa-cluster-${{ github.event.inputs.cluster_name }}-terraform
+          path: cluster-config/
+          retention-days: 90
+
+      - name: Generate Summary
+        if: always()
+        run: |
+          echo "## Terraform ${{ github.event.inputs.action }} Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** ${{ github.event.inputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Action:** ${{ github.event.inputs.action }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ github.event.inputs.action }}" == "plan" ]; then
+            echo "### Plan Status" >> $GITHUB_STEP_SUMMARY
+            if [ "${{ steps.plan.outcome }}" == "success" ]; then
+              echo "Plan completed successfully. Review the plan output above." >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "To apply changes, run this workflow again with action: **apply**" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "Plan failed. Check the logs for details." >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+          if [ "${{ github.event.inputs.action }}" == "apply" ]; then
+            echo "### Cluster Details" >> $GITHUB_STEP_SUMMARY
+            echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| **API URL** | ${{ steps.outputs.outputs.api_url }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Console URL** | ${{ steps.outputs.outputs.console_url }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Apps Domain** | ${{ steps.outputs.outputs.apps_domain }} |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### DNS Setup" >> $GITHUB_STEP_SUMMARY
+            echo "Create a wildcard CNAME record:" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "*.dev.confluent.psyncopate.io -> *.${{ steps.outputs.outputs.apps_domain }}" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+            echo "1. Run **02-configure-cluster** workflow" >> $GITHUB_STEP_SUMMARY
+            echo "2. Run **03-deploy-cfk-operator** workflow" >> $GITHUB_STEP_SUMMARY
+            echo "3. Run **04-deploy-confluent-platform** workflow" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ github.event.inputs.action }}" == "destroy" ]; then
+            echo "### Destroy Complete" >> $GITHUB_STEP_SUMMARY
+            echo "Cluster ${{ github.event.inputs.cluster_name }} has been destroyed." >> $GITHUB_STEP_SUMMARY
+          fi
