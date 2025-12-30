@@ -78,18 +78,18 @@ jobs:
       - name: Update Manifests with Cluster Domain
         run: |
           APPS_DOMAIN="${{ steps.cluster.outputs.apps_domain }}"
-          sed -i "s/apps\.rm2\.thpm\.p1\.openshiftapps\.com/${APPS_DOMAIN}/g" environments/dev/confluent-platform/*.yaml
+          sed -i "s/apps\.rm2\.thpm\.p1\.openshiftapps\.com/${APPS_DOMAIN}/g" env/dev/confluent-platform/*.yaml
           echo "Updated manifests with domain: ${APPS_DOMAIN}"
 
       - name: Deploy AppProject
         run: |
-          oc apply -f environments/dev/argocd/appproject.yaml
+          oc apply -f env/dev/argocd/appproject.yaml
 
       - name: Deploy CFK Operator Application
         if: ${{ github.event.inputs.deploy_operator == 'true' }}
         run: |
           echo "Deploying CFK Operator via ArgoCD..."
-          oc apply -f environments/dev/argocd/cfk-operator-app.yaml
+          oc apply -f env/dev/argocd/cfk-operator-app.yaml
 
           echo "Waiting for CFK Operator to sync..."
           sleep 30
@@ -116,7 +116,7 @@ jobs:
         if: ${{ github.event.inputs.deploy_platform == 'true' }}
         run: |
           echo "Deploying Confluent Platform via ArgoCD..."
-          oc apply -f environments/dev/argocd/confluent-platform-app.yaml
+          oc apply -f env/dev/argocd/confluent-platform-app.yaml
 
           echo "Waiting for initial sync..."
           sleep 30

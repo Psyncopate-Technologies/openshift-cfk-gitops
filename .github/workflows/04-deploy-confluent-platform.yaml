@@ -73,14 +73,14 @@ jobs:
           APPS_DOMAIN="${{ steps.cluster.outputs.apps_domain }}"
 
           # Update Kafka manifest with correct domain
-          sed -i "s/apps\.rm2\.thpm\.p1\.openshiftapps\.com/${APPS_DOMAIN}/g" environments/dev/confluent-platform/*.yaml
+          sed -i "s/apps\.rm2\.thpm\.p1\.openshiftapps\.com/${APPS_DOMAIN}/g" env/dev/confluent-platform/*.yaml
 
           echo "Updated manifests with domain: ${APPS_DOMAIN}"
 
       - name: Deploy Confluent Platform
         run: |
           echo "Deploying Confluent Platform components..."
-          oc apply -f environments/dev/confluent-platform/
+          oc apply -f env/dev/confluent-platform/
 
       - name: Wait for KRaft Controller
         run: |

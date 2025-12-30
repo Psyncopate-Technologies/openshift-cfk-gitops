@@ -105,7 +105,7 @@ openshift-cfk-gitops/
 │   ├── 06-deploy-argocd-apps.yaml
 │   ├── 99-deprovision-rosa.yaml
 │   └── README.md
-├── environments/
+├── env/
 │   └── dev/
 │       ├── argocd/            # ArgoCD Application manifests
 │       ├── cluster-config/     # Namespace and SCC definitions

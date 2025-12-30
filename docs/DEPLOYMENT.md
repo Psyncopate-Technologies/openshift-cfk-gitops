@@ -138,7 +138,7 @@ The `<apps-domain>` is shown in the workflow output (e.g., `apps.cfk-test.abcd.p
 ## Scaling
 
 ### Horizontal Scaling
-Edit the component manifests in `environments/dev/confluent-platform/`:
+Edit the component manifests in `env/dev/confluent-platform/`:
 
 ```yaml
 spec:

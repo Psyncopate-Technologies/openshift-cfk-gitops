@@ -103,7 +103,7 @@ jobs:
 
       - name: Apply Security Context Constraints
         run: |
-          oc apply -f environments/dev/cluster-config/scc.yaml
+          oc apply -f env/dev/cluster-config/scc.yaml
 
       - name: Grant SCC to Service Accounts
         run: |

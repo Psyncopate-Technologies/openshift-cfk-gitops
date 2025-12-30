@@ -64,7 +64,7 @@ oc create namespace confluent
 oc create namespace confluent-operator
 
 # Apply Security Context Constraints
-oc apply -f environments/dev/cluster-config/scc.yaml
+oc apply -f env/dev/cluster-config/scc.yaml
 
 # Grant SCC to service accounts
 oc adm policy add-scc-to-user confluent-scc -z default -n confluent
@@ -105,7 +105,7 @@ oc get crds | grep confluent
 
 ```bash
 # Deploy using the simplified manifests
-oc apply -f environments/dev/confluent-platform/
+oc apply -f env/dev/confluent-platform/
 ```
 
 ### Step 4: Monitor Deployment
@@ -122,7 +122,7 @@ oc get kraftcontroller,kafka,schemaregistry,connect,ksqldb,controlcenter -n conf
 
 ```bash
 # Apply routes
-oc apply -f environments/dev/routes-simple/
+oc apply -f env/dev/routes-simple/
 ```
 
 ## Accessing the Platform
