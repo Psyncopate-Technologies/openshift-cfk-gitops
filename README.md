@@ -236,22 +236,33 @@ openshift-cfk-gitops/
 
 All Confluent Platform components use TLS for secure communication. The workflow generates:
 
-1. **CA Certificate** - Self-signed CA stored in `ca-pair-sslcerts` secret
+1. **CA Certificate** - Self-signed CA stored in two formats:
+   - `ca-pair-sslcerts` - TLS secret with `tls.crt` and `tls.key` keys
+   - `ca-pair-sslcerts-truststore` - Generic secret with `ca.crt` key (for dependency trust)
+
 2. **Wildcard Certificate** - Single certificate with SANs for:
    - `*.{env}.confluent.psyncopate.io` (external access)
    - `*.confluent.svc.cluster.local` (internal cluster access)
    - Individual service names (kafka, schemaregistry, etc.)
 
-**Per-component TLS secrets:**
-| Secret | Component |
-|--------|-----------|
-| `kafka-tls` | Kafka brokers |
-| `kraftcontroller-tls` | KRaft controllers |
-| `schemaregistry-tls` | Schema Registry |
-| `connect-tls` | Kafka Connect |
-| `ksqldb-tls` | ksqlDB |
-| `controlcenter-tls` | Control Center |
-| `kafkarestproxy-tls` | REST Proxy |
+**TLS Secrets:**
+
+| Secret | Type | Purpose |
+|--------|------|---------|
+| `ca-pair-sslcerts` | TLS | CA certificate and key |
+| `ca-pair-sslcerts-truststore` | Generic | CA for dependency trust (ca.crt key) |
+| `kafka-tls` | TLS | Kafka broker certificates |
+| `kraftcontroller-tls` | TLS | KRaft controller certificates |
+| `schemaregistry-tls` | TLS | Schema Registry certificates |
+| `connect-tls` | TLS | Kafka Connect certificates |
+| `ksqldb-tls` | TLS | ksqlDB certificates |
+| `controlcenter-tls` | TLS | Control Center certificates |
+| `kafkarestproxy-tls` | TLS | REST Proxy certificates |
+
+**How TLS Works:**
+- Each component uses its `*-tls` secret for its server certificate (via `secretRef`)
+- Components reference `ca-pair-sslcerts-truststore` in their dependencies to trust other components' certificates
+- This ensures proper certificate chain validation for inter-component communication
 
 This approach ensures proper SNI validation for all components, including the next-gen Control Center which uses Jetty 12.
 

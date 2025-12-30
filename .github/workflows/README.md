@@ -116,14 +116,17 @@ Configures the cluster for Confluent Platform.
 - `confluent` and `confluent-operator` namespaces
 - `confluent-scc` SecurityContextConstraints
 - Docker Hub pull secret (for image pulls)
-- CA certificate secret (`ca-pair-sslcerts`) for TLS auto-generation
+- CA certificate secrets for TLS
 - Grants SCCs to service accounts
 
 **TLS Configuration:**
-- Generates a self-signed CA certificate
+- Generates a self-signed CA certificate stored in two formats:
+  - `ca-pair-sslcerts` - TLS secret with `tls.crt` and `tls.key` keys
+  - `ca-pair-sslcerts-truststore` - Generic secret with `ca.crt` key (for dependency trust)
 - Generates a wildcard certificate with SANs for `*.{env}.confluent.psyncopate.io` and all internal service names
 - Creates per-component TLS secrets (`kafka-tls`, `controlcenter-tls`, etc.)
 - All Confluent Platform components use TLS for internal and external communication
+- Components use `ca-pair-sslcerts-truststore` to trust other components' certificates
 
 ### 03-install-argocd.yaml
 
@@ -250,6 +253,12 @@ Total: ~$15-20 for a day of testing
 - Re-run workflow 02-configure-cluster to recreate the secret
 
 ### TLS certificate errors
-- Verify CA certificate secret exists: `oc get secret ca-pair-sslcerts -n confluent`
-- Check certificate content: `oc get secret ca-pair-sslcerts -n confluent -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -text -noout`
-- Re-run workflow 02-configure-cluster to regenerate the CA certificate
+- Verify CA certificate secrets exist:
+  ```bash
+  oc get secret ca-pair-sslcerts -n confluent
+  oc get secret ca-pair-sslcerts-truststore -n confluent
+  ```
+- Check CA certificate content: `oc get secret ca-pair-sslcerts -n confluent -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -text -noout`
+- Check truststore secret has correct key: `oc get secret ca-pair-sslcerts-truststore -n confluent -o jsonpath='{.data}' | jq 'keys'` (should show `ca.crt`)
+- If components show "PKIX path building failed" errors, the truststore secret may be missing or have wrong key format
+- Re-run workflow 02-configure-cluster to regenerate the CA certificates
