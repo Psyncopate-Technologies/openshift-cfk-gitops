@@ -1,0 +1,51 @@
+apiVersion: platform.confluent.io/v1beta1
+kind: KRaftController
+metadata:
+  name: kraftcontroller
+  namespace: confluent
+spec:
+  replicas: 3
+  image:
+    application: ${ECR_REGISTRY}/confluent/cp-server:8.0.1
+    init: ${ECR_REGISTRY}/confluent/confluent-init-container:2.10.0
+  dataVolumeCapacity: 10Gi
+  storageClass:
+    name: gp3-csi
+  podTemplate:
+    resources:
+      requests:
+        cpu: "500m"
+        memory: 2Gi
+      limits:
+        cpu: "1"
+        memory: 4Gi
+    podSecurityContext:
+      fsGroup: 1000
+      runAsUser: 1000
+      runAsNonRoot: true
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - kraftcontroller
+              topologyKey: topology.kubernetes.io/zone
+  configOverrides:
+    server:
+      - controller.quorum.election.timeout.ms=5000
+      - controller.quorum.fetch.timeout.ms=5000
+  listeners:
+    controller:
+      tls:
+        enabled: true
+        secretRef: wildcard-tls
+  metrics:
+    prometheus:
+      whitelist:
+        - kafka.controller:*
+        - kafka.server:type=KafkaRequestHandlerPool,*

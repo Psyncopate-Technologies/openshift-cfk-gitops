@@ -1,0 +1,226 @@
+name: 08-Deploy Confluent Platform
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+        default: 'dev'
+      deploy_method:
+        description: 'Deployment method'
+        required: true
+        type: choice
+        options:
+          - argocd
+          - direct
+        default: 'argocd'
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy Confluent Platform
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download Terraform outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-outputs-${{ github.event.inputs.environment }}
+          path: ./terraform-outputs
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+
+      - name: Install kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Login to OpenShift
+        run: |
+          CLUSTER_API=$(jq -r '.cluster_api_url.value' terraform-outputs/terraform-outputs.json)
+          oc login "$CLUSTER_API" \
+            --username=cluster-admin \
+            --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            --insecure-skip-tls-verify=true
+
+      - name: Get Configuration Values
+        id: config
+        run: |
+          ECR_REGISTRY=$(jq -r '.ecr_registry_url.value' terraform-outputs/terraform-outputs.json)
+          DOMAIN_NAME=$(jq -r '.route53_domain.value' terraform-outputs/terraform-outputs.json)
+
+          echo "ecr_registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
+          echo "domain_name=${DOMAIN_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Deploy via ArgoCD
+        if: github.event.inputs.deploy_method == 'argocd'
+        run: |
+          # Sync the platform ArgoCD application
+          ARGOCD_SERVER=$(oc get route openshift-gitops-server -n openshift-gitops -o jsonpath='{.spec.host}')
+          ARGOCD_PASSWORD=$(oc get secret openshift-gitops-cluster -n openshift-gitops -o jsonpath='{.data.admin\.password}' | base64 -d)
+
+          # Install argocd CLI
+          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x argocd
+          sudo mv argocd /usr/local/bin/
+
+          # Login to ArgoCD
+          argocd login "$ARGOCD_SERVER" \
+            --username admin \
+            --password "$ARGOCD_PASSWORD" \
+            --insecure
+
+          # Sync the platform application
+          argocd app sync confluent-platform-${{ github.event.inputs.environment }} --prune || \
+            echo "Application may not exist yet, applying manifests..."
+
+          # If app doesn't exist, create it
+          argocd app get confluent-platform-${{ github.event.inputs.environment }} || \
+            argocd app create confluent-platform-${{ github.event.inputs.environment }} \
+              --repo "${{ github.server_url }}/${{ github.repository }}" \
+              --path "environments/${{ github.event.inputs.environment }}/platform" \
+              --dest-server https://kubernetes.default.svc \
+              --dest-namespace confluent \
+              --project confluent \
+              --sync-policy automated \
+              --auto-prune \
+              --self-heal
+
+      - name: Deploy Directly via kubectl
+        if: github.event.inputs.deploy_method == 'direct'
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          ECR_REGISTRY="${{ steps.config.outputs.ecr_registry }}"
+          DOMAIN_NAME="${{ steps.config.outputs.domain_name }}"
+
+          # Export variables for kustomize
+          export ECR_REGISTRY="${ECR_REGISTRY}"
+          export DOMAIN_NAME="${DOMAIN_NAME}"
+          export ENVIRONMENT="${ENV}"
+
+          # Apply platform manifests with kustomize
+          cd environments/${ENV}/platform
+
+          # Substitute environment variables in manifests
+          for file in *.yaml; do
+            if [ -f "$file" ]; then
+              envsubst < "$file" > "/tmp/$file"
+              oc apply -f "/tmp/$file"
+            fi
+          done
+
+      - name: Wait for KRaft Controller
+        run: |
+          echo "Waiting for KRaft Controller to be ready..."
+          for i in {1..60}; do
+            PHASE=$(oc get kraftcontroller kraftcontroller -n confluent -o jsonpath='{.status.phase}' 2>/dev/null || echo "NotFound")
+            if [ "$PHASE" == "RUNNING" ]; then
+              echo "KRaft Controller is running!"
+              break
+            fi
+            echo "KRaft Controller phase: $PHASE (attempt $i/60)"
+            sleep 30
+          done
+
+      - name: Wait for Kafka
+        run: |
+          echo "Waiting for Kafka to be ready..."
+          for i in {1..60}; do
+            PHASE=$(oc get kafka kafka -n confluent -o jsonpath='{.status.phase}' 2>/dev/null || echo "NotFound")
+            if [ "$PHASE" == "RUNNING" ]; then
+              echo "Kafka is running!"
+              break
+            fi
+            echo "Kafka phase: $PHASE (attempt $i/60)"
+            sleep 30
+          done
+
+      - name: Wait for Other Components
+        run: |
+          COMPONENTS="schemaregistry connect ksqldb controlcenter kafkarestproxy"
+
+          for COMPONENT in $COMPONENTS; do
+            echo "Waiting for $COMPONENT..."
+            for i in {1..30}; do
+              PHASE=$(oc get $COMPONENT $COMPONENT -n confluent -o jsonpath='{.status.phase}' 2>/dev/null || echo "NotFound")
+              if [ "$PHASE" == "RUNNING" ]; then
+                echo "$COMPONENT is running!"
+                break
+              fi
+              echo "$COMPONENT phase: $PHASE (attempt $i/30)"
+              sleep 20
+            done
+          done
+
+      - name: Verify Deployment
+        run: |
+          echo "=== Confluent Platform Status ==="
+          echo ""
+          echo "KRaft Controller:"
+          oc get kraftcontroller -n confluent
+          echo ""
+          echo "Kafka:"
+          oc get kafka -n confluent
+          echo ""
+          echo "Schema Registry:"
+          oc get schemaregistry -n confluent
+          echo ""
+          echo "Connect:"
+          oc get connect -n confluent
+          echo ""
+          echo "ksqlDB:"
+          oc get ksqldb -n confluent
+          echo ""
+          echo "Control Center:"
+          oc get controlcenter -n confluent
+          echo ""
+          echo "Kafka REST Proxy:"
+          oc get kafkarestproxy -n confluent
+          echo ""
+          echo "Pods:"
+          oc get pods -n confluent
+
+      - name: Generate Summary
+        run: |
+          echo "## Confluent Platform Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Deploy Method:** ${{ github.event.inputs.deploy_method }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Component Status" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Phase |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| KRaft Controller | $(oc get kraftcontroller kraftcontroller -n confluent -o jsonpath='{.status.phase}' 2>/dev/null || echo 'N/A') |" >> $GITHUB_STEP_SUMMARY
+          echo "| Kafka | $(oc get kafka kafka -n confluent -o jsonpath='{.status.phase}' 2>/dev/null || echo 'N/A') |" >> $GITHUB_STEP_SUMMARY
+          echo "| Schema Registry | $(oc get schemaregistry schemaregistry -n confluent -o jsonpath='{.status.phase}' 2>/dev/null || echo 'N/A') |" >> $GITHUB_STEP_SUMMARY
+          echo "| Connect | $(oc get connect connect -n confluent -o jsonpath='{.status.phase}' 2>/dev/null || echo 'N/A') |" >> $GITHUB_STEP_SUMMARY
+          echo "| ksqlDB | $(oc get ksqldb ksqldb -n confluent -o jsonpath='{.status.phase}' 2>/dev/null || echo 'N/A') |" >> $GITHUB_STEP_SUMMARY
+          echo "| Control Center | $(oc get controlcenter controlcenter -n confluent -o jsonpath='{.status.phase}' 2>/dev/null || echo 'N/A') |" >> $GITHUB_STEP_SUMMARY
+          echo "| REST Proxy | $(oc get kafkarestproxy kafkarestproxy -n confluent -o jsonpath='{.status.phase}' 2>/dev/null || echo 'N/A') |" >> $GITHUB_STEP_SUMMARY

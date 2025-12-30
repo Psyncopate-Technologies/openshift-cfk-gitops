@@ -1,0 +1,19 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: schemaregistry
+  namespace: confluent
+  annotations:
+    haproxy.router.openshift.io/timeout: 30s
+spec:
+  host: schemaregistry.${APPS_DOMAIN}
+  to:
+    kind: Service
+    name: schemaregistry
+    weight: 100
+  port:
+    targetPort: external
+  tls:
+    termination: passthrough
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

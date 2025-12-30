@@ -1,0 +1,60 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: confluent-platform-dev
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: confluent
+  source:
+    repoURL: https://github.com/YOUR_ORG/openshift-cfk-gitops.git
+    targetRevision: main
+    path: environments/dev/platform
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: confluent
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  ignoreDifferences:
+    - group: platform.confluent.io
+      kind: Kafka
+      jsonPointers:
+        - /spec/listeners/external/externalAccess/route/brokerPrefix
+        - /spec/listeners/external/externalAccess/route/bootstrapPrefix
+    - group: platform.confluent.io
+      kind: KRaftController
+      jsonPointers:
+        - /status
+    - group: platform.confluent.io
+      kind: SchemaRegistry
+      jsonPointers:
+        - /status
+    - group: platform.confluent.io
+      kind: Connect
+      jsonPointers:
+        - /status
+    - group: platform.confluent.io
+      kind: KsqlDB
+      jsonPointers:
+        - /status
+    - group: platform.confluent.io
+      kind: ControlCenter
+      jsonPointers:
+        - /status
+    - group: platform.confluent.io
+      kind: KafkaRestProxy
+      jsonPointers:
+        - /status

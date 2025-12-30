@@ -1,0 +1,19 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: kafkarestproxy
+  namespace: confluent
+  annotations:
+    haproxy.router.openshift.io/timeout: 30s
+spec:
+  host: restproxy.${APPS_DOMAIN}
+  to:
+    kind: Service
+    name: kafkarestproxy
+    weight: 100
+  port:
+    targetPort: external
+  tls:
+    termination: passthrough
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

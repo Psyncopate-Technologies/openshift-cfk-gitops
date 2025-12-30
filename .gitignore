@@ -1,0 +1,63 @@
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars.json
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
+# Secrets (never commit these)
+*.pem
+*.key
+*.crt
+*secret*
+credentials.json
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+.kube/
+
+# Build artifacts
+/dist/
+/build/
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Test outputs
+coverage/
+*.coverage
+.pytest_cache/
+
+# Node modules (if any tooling)
+node_modules/
+
+# Python (if any scripts)
+__pycache__/
+*.py[cod]
+venv/
+.venv/

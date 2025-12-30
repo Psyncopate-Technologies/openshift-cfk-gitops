@@ -1,0 +1,216 @@
+name: 09-Deploy Routes
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+        default: 'dev'
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy OpenShift Routes
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download Terraform outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-outputs-${{ github.event.inputs.environment }}
+          path: ./terraform-outputs
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+
+      - name: Login to OpenShift
+        run: |
+          CLUSTER_API=$(jq -r '.cluster_api_url.value' terraform-outputs/terraform-outputs.json)
+          oc login "$CLUSTER_API" \
+            --username=cluster-admin \
+            --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            --insecure-skip-tls-verify=true
+
+      - name: Get Domain Name
+        id: domain
+        run: |
+          DOMAIN_NAME=$(jq -r '.route53_domain.value' terraform-outputs/terraform-outputs.json)
+          echo "domain=${DOMAIN_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Apply Routes
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          DOMAIN="${{ steps.domain.outputs.domain }}"
+          APPS_DOMAIN="apps.${ENV}.${DOMAIN}"
+
+          # Apply routes from environment directory if exists
+          if [ -d "environments/${ENV}/routes" ]; then
+            cd environments/${ENV}/routes
+            for file in *.yaml; do
+              if [ -f "$file" ]; then
+                # Substitute domain variables
+                sed "s/\${APPS_DOMAIN}/${APPS_DOMAIN}/g" "$file" | oc apply -f -
+              fi
+            done
+          else
+            # Create default routes
+            echo "Creating default routes..."
+
+            # Control Center Route
+            oc apply -f - <<EOF
+          apiVersion: route.openshift.io/v1
+          kind: Route
+          metadata:
+            name: controlcenter
+            namespace: confluent
+            annotations:
+              haproxy.router.openshift.io/timeout: 60s
+          spec:
+            host: controlcenter.${APPS_DOMAIN}
+            to:
+              kind: Service
+              name: controlcenter
+              weight: 100
+            port:
+              targetPort: external
+            tls:
+              termination: passthrough
+              insecureEdgeTerminationPolicy: Redirect
+            wildcardPolicy: None
+          EOF
+
+            # Schema Registry Route
+            oc apply -f - <<EOF
+          apiVersion: route.openshift.io/v1
+          kind: Route
+          metadata:
+            name: schemaregistry
+            namespace: confluent
+          spec:
+            host: schemaregistry.${APPS_DOMAIN}
+            to:
+              kind: Service
+              name: schemaregistry
+              weight: 100
+            port:
+              targetPort: external
+            tls:
+              termination: passthrough
+              insecureEdgeTerminationPolicy: Redirect
+            wildcardPolicy: None
+          EOF
+
+            # Connect Route
+            oc apply -f - <<EOF
+          apiVersion: route.openshift.io/v1
+          kind: Route
+          metadata:
+            name: connect
+            namespace: confluent
+          spec:
+            host: connect.${APPS_DOMAIN}
+            to:
+              kind: Service
+              name: connect
+              weight: 100
+            port:
+              targetPort: external
+            tls:
+              termination: passthrough
+              insecureEdgeTerminationPolicy: Redirect
+            wildcardPolicy: None
+          EOF
+
+            # ksqlDB Route
+            oc apply -f - <<EOF
+          apiVersion: route.openshift.io/v1
+          kind: Route
+          metadata:
+            name: ksqldb
+            namespace: confluent
+          spec:
+            host: ksqldb.${APPS_DOMAIN}
+            to:
+              kind: Service
+              name: ksqldb
+              weight: 100
+            port:
+              targetPort: external
+            tls:
+              termination: passthrough
+              insecureEdgeTerminationPolicy: Redirect
+            wildcardPolicy: None
+          EOF
+
+            # REST Proxy Route
+            oc apply -f - <<EOF
+          apiVersion: route.openshift.io/v1
+          kind: Route
+          metadata:
+            name: kafkarestproxy
+            namespace: confluent
+          spec:
+            host: restproxy.${APPS_DOMAIN}
+            to:
+              kind: Service
+              name: kafkarestproxy
+              weight: 100
+            port:
+              targetPort: external
+            tls:
+              termination: passthrough
+              insecureEdgeTerminationPolicy: Redirect
+            wildcardPolicy: None
+          EOF
+          fi
+
+      - name: Verify Routes
+        run: |
+          echo "OpenShift Routes in confluent namespace:"
+          oc get routes -n confluent -o wide
+
+      - name: Generate Summary
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          DOMAIN="${{ steps.domain.outputs.domain }}"
+          APPS_DOMAIN="apps.${ENV}.${DOMAIN}"
+
+          echo "## Routes Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${ENV}" >> $GITHUB_STEP_SUMMARY
+          echo "**Domain:** ${APPS_DOMAIN}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployed Routes" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | URL |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| Control Center | https://controlcenter.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Schema Registry | https://schemaregistry.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Connect | https://connect.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ksqlDB | https://ksqldb.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| REST Proxy | https://restproxy.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: confluent-operator-dev
+  namespace: openshift-gitops
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: confluent
+  source:
+    repoURL: https://packages.confluent.io/helm
+    chart: confluent-for-kubernetes
+    targetRevision: 0.921.20
+    helm:
+      releaseName: confluent-operator
+      valueFiles: []
+      values: |
+        namespaced: false
+        namespaceList:
+          - confluent
+        podSecurityContext:
+          runAsUser: 1000
+          runAsNonRoot: true
+          fsGroup: 1000
+        resources:
+          requests:
+            cpu: 200m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        imagePullSecrets:
+          - name: ecr-pull-secret
+        telemetry:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: confluent-operator
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

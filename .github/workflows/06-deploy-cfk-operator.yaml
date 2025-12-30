@@ -1,0 +1,142 @@
+name: 06-Deploy CFK Operator
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+        default: 'dev'
+      cfk_version:
+        description: 'CFK Operator version'
+        required: true
+        default: '2.10.0'
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy Confluent for Kubernetes Operator
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download Terraform outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-outputs-${{ github.event.inputs.environment }}
+          path: ./terraform-outputs
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.13.0'
+
+      - name: Login to OpenShift
+        run: |
+          CLUSTER_API=$(jq -r '.cluster_api_url.value' terraform-outputs/terraform-outputs.json)
+          oc login "$CLUSTER_API" \
+            --username=cluster-admin \
+            --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            --insecure-skip-tls-verify=true
+
+      - name: Get ECR Registry URL
+        id: ecr
+        run: |
+          ECR_REGISTRY=$(jq -r '.ecr_registry_url.value' terraform-outputs/terraform-outputs.json)
+          echo "registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
+
+      - name: Add Confluent Helm repository
+        run: |
+          helm repo add confluentinc https://packages.confluent.io/helm
+          helm repo update
+
+      - name: Create Operator Namespace
+        run: |
+          oc apply -f - <<EOF
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: confluent-operator
+            labels:
+              app.kubernetes.io/managed-by: helm
+          EOF
+
+      - name: Deploy CFK Operator
+        run: |
+          ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
+          CFK_VERSION="${{ github.event.inputs.cfk_version }}"
+
+          helm upgrade --install confluent-operator confluentinc/confluent-for-kubernetes \
+            --namespace confluent-operator \
+            --version "${CFK_VERSION}" \
+            --set image.registry="${ECR_REGISTRY}/confluent" \
+            --set image.repository="confluent-operator" \
+            --set image.tag="${CFK_VERSION}" \
+            --set podSecurityContext.runAsUser=1000 \
+            --set podSecurityContext.runAsNonRoot=true \
+            --set podSecurityContext.fsGroup=1000 \
+            --set namespaced=false \
+            --set namespaceList="{confluent}" \
+            --set imagePullSecrets[0].name=ecr-pull-secret \
+            --wait \
+            --timeout 10m
+
+      - name: Grant SCC to Operator Service Account
+        run: |
+          oc adm policy add-scc-to-user confluent-scc \
+            system:serviceaccount:confluent-operator:confluent-for-kubernetes || true
+
+      - name: Verify CFK Operator Deployment
+        run: |
+          echo "Checking CFK Operator pods..."
+          oc get pods -n confluent-operator
+
+          echo ""
+          echo "Checking CRDs..."
+          oc get crds | grep confluent
+
+          echo ""
+          echo "Waiting for operator to be ready..."
+          oc wait --for=condition=Available deployment/confluent-operator -n confluent-operator --timeout=300s
+
+      - name: Generate Summary
+        run: |
+          echo "## CFK Operator Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**CFK Version:** ${{ github.event.inputs.cfk_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Installed CRDs" >> $GITHUB_STEP_SUMMARY
+          oc get crds | grep confluent | awk '{print "- " $1}' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Operator Status" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          oc get pods -n confluent-operator >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

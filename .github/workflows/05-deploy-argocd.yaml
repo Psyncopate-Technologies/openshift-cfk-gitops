@@ -1,0 +1,208 @@
+name: 05-Deploy ArgoCD
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+        default: 'dev'
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy OpenShift GitOps (ArgoCD)
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download Terraform outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-outputs-${{ github.event.inputs.environment }}
+          path: ./terraform-outputs
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+
+      - name: Login to OpenShift
+        run: |
+          CLUSTER_API=$(jq -r '.cluster_api_url.value' terraform-outputs/terraform-outputs.json)
+          oc login "$CLUSTER_API" \
+            --username=cluster-admin \
+            --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            --insecure-skip-tls-verify=true
+
+      - name: Install OpenShift GitOps Operator
+        run: |
+          # Create subscription for OpenShift GitOps Operator
+          oc apply -f - <<EOF
+          apiVersion: operators.coreos.com/v1alpha1
+          kind: Subscription
+          metadata:
+            name: openshift-gitops-operator
+            namespace: openshift-operators
+          spec:
+            channel: latest
+            installPlanApproval: Automatic
+            name: openshift-gitops-operator
+            source: redhat-operators
+            sourceNamespace: openshift-marketplace
+          EOF
+
+          # Wait for operator to be ready
+          echo "Waiting for OpenShift GitOps Operator to be ready..."
+          sleep 60
+
+          # Wait for ArgoCD instance to be ready
+          for i in {1..30}; do
+            if oc get argocd openshift-gitops -n openshift-gitops &>/dev/null; then
+              echo "ArgoCD instance found"
+              break
+            fi
+            echo "Waiting for ArgoCD instance... ($i/30)"
+            sleep 10
+          done
+
+      - name: Configure ArgoCD Instance
+        run: |
+          # Patch ArgoCD for resource customization
+          oc patch argocd openshift-gitops -n openshift-gitops --type=merge -p '
+          spec:
+            resourceCustomizations: |
+              platform.confluent.io/*:
+                health.lua: |
+                  hs = {}
+                  if obj.status ~= nil then
+                    if obj.status.phase == "RUNNING" then
+                      hs.status = "Healthy"
+                      hs.message = "Component is running"
+                      return hs
+                    end
+                    if obj.status.phase == "PROVISIONING" then
+                      hs.status = "Progressing"
+                      hs.message = "Component is provisioning"
+                      return hs
+                    end
+                  end
+                  hs.status = "Unknown"
+                  hs.message = "Status unknown"
+                  return hs
+            server:
+              route:
+                enabled: true
+                tls:
+                  termination: reencrypt
+                  insecureEdgeTerminationPolicy: Redirect
+          '
+
+      - name: Configure Git Repository Credentials
+        run: |
+          # Create repository secret for ArgoCD
+          oc apply -f - <<EOF
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: repo-confluent-gitops
+            namespace: openshift-gitops
+            labels:
+              argocd.argoproj.io/secret-type: repository
+          stringData:
+            type: git
+            url: ${{ github.server_url }}/${{ github.repository }}
+            sshPrivateKey: |
+              ${{ secrets.ARGOCD_SSH_PRIVATE_KEY }}
+          EOF
+
+      - name: Create ArgoCD Project
+        run: |
+          oc apply -f - <<EOF
+          apiVersion: argoproj.io/v1alpha1
+          kind: AppProject
+          metadata:
+            name: confluent
+            namespace: openshift-gitops
+          spec:
+            description: Confluent Platform deployment project
+            sourceRepos:
+              - '${{ github.server_url }}/${{ github.repository }}'
+            destinations:
+              - namespace: confluent
+                server: https://kubernetes.default.svc
+              - namespace: confluent-operator
+                server: https://kubernetes.default.svc
+              - namespace: cert-manager
+                server: https://kubernetes.default.svc
+            clusterResourceWhitelist:
+              - group: ''
+                kind: Namespace
+              - group: security.openshift.io
+                kind: SecurityContextConstraints
+              - group: route.openshift.io
+                kind: Route
+              - group: cert-manager.io
+                kind: ClusterIssuer
+              - group: cert-manager.io
+                kind: Certificate
+            namespaceResourceWhitelist:
+              - group: '*'
+                kind: '*'
+          EOF
+
+      - name: Apply ArgoCD Applications
+        run: |
+          # Apply the ArgoCD applications for this environment
+          if [ -d "argocd/${{ github.event.inputs.environment }}" ]; then
+            oc apply -f argocd/${{ github.event.inputs.environment }}/
+          fi
+
+      - name: Get ArgoCD Route and Password
+        id: argocd
+        run: |
+          ARGOCD_ROUTE=$(oc get route openshift-gitops-server -n openshift-gitops -o jsonpath='{.spec.host}')
+          ARGOCD_PASSWORD=$(oc get secret openshift-gitops-cluster -n openshift-gitops -o jsonpath='{.data.admin\.password}' | base64 -d)
+
+          echo "route=${ARGOCD_ROUTE}" >> $GITHUB_OUTPUT
+          echo "::add-mask::${ARGOCD_PASSWORD}"
+          echo "password=${ARGOCD_PASSWORD}" >> $GITHUB_OUTPUT
+
+      - name: Generate Summary
+        run: |
+          echo "## ArgoCD Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ArgoCD Access" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL:** https://${{ steps.argocd.outputs.route }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Username:** admin" >> $GITHUB_STEP_SUMMARY
+          echo "- **Password:** (stored in openshift-gitops-cluster secret)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Configured Resources" >> $GITHUB_STEP_SUMMARY
+          echo "- OpenShift GitOps Operator installed" >> $GITHUB_STEP_SUMMARY
+          echo "- ArgoCD instance configured" >> $GITHUB_STEP_SUMMARY
+          echo "- AppProject: confluent" >> $GITHUB_STEP_SUMMARY
+          echo "- Git repository credentials configured" >> $GITHUB_STEP_SUMMARY

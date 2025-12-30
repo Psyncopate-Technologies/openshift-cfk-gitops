@@ -1,0 +1,339 @@
+name: 10-Deploy Monitoring
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+        default: 'dev'
+      enable_datadog:
+        description: 'Enable DataDog integration'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy Monitoring
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download Terraform outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-outputs-${{ github.event.inputs.environment }}
+          path: ./terraform-outputs
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+
+      - name: Login to OpenShift
+        run: |
+          CLUSTER_API=$(jq -r '.cluster_api_url.value' terraform-outputs/terraform-outputs.json)
+          oc login "$CLUSTER_API" \
+            --username=cluster-admin \
+            --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            --insecure-skip-tls-verify=true
+
+      - name: Enable User Workload Monitoring
+        run: |
+          # Enable user workload monitoring in OpenShift
+          oc apply -f - <<EOF
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: cluster-monitoring-config
+            namespace: openshift-monitoring
+          data:
+            config.yaml: |
+              enableUserWorkload: true
+          EOF
+
+          # Wait for user workload monitoring to be ready
+          echo "Waiting for user workload monitoring..."
+          sleep 30
+
+      - name: Deploy ServiceMonitors
+        run: |
+          # ServiceMonitor for Kafka
+          oc apply -f - <<EOF
+          apiVersion: monitoring.coreos.com/v1
+          kind: ServiceMonitor
+          metadata:
+            name: kafka
+            namespace: confluent
+            labels:
+              app: kafka
+          spec:
+            selector:
+              matchLabels:
+                app: kafka
+            endpoints:
+              - port: prometheus
+                interval: 30s
+                path: /metrics
+            namespaceSelector:
+              matchNames:
+                - confluent
+          ---
+          apiVersion: monitoring.coreos.com/v1
+          kind: ServiceMonitor
+          metadata:
+            name: kraftcontroller
+            namespace: confluent
+            labels:
+              app: kraftcontroller
+          spec:
+            selector:
+              matchLabels:
+                app: kraftcontroller
+            endpoints:
+              - port: prometheus
+                interval: 30s
+                path: /metrics
+            namespaceSelector:
+              matchNames:
+                - confluent
+          ---
+          apiVersion: monitoring.coreos.com/v1
+          kind: ServiceMonitor
+          metadata:
+            name: schemaregistry
+            namespace: confluent
+            labels:
+              app: schemaregistry
+          spec:
+            selector:
+              matchLabels:
+                app: schemaregistry
+            endpoints:
+              - port: prometheus
+                interval: 30s
+                path: /metrics
+            namespaceSelector:
+              matchNames:
+                - confluent
+          ---
+          apiVersion: monitoring.coreos.com/v1
+          kind: ServiceMonitor
+          metadata:
+            name: connect
+            namespace: confluent
+            labels:
+              app: connect
+          spec:
+            selector:
+              matchLabels:
+                app: connect
+            endpoints:
+              - port: prometheus
+                interval: 30s
+                path: /metrics
+            namespaceSelector:
+              matchNames:
+                - confluent
+          ---
+          apiVersion: monitoring.coreos.com/v1
+          kind: ServiceMonitor
+          metadata:
+            name: ksqldb
+            namespace: confluent
+            labels:
+              app: ksqldb
+          spec:
+            selector:
+              matchLabels:
+                app: ksqldb
+            endpoints:
+              - port: prometheus
+                interval: 30s
+                path: /metrics
+            namespaceSelector:
+              matchNames:
+                - confluent
+          ---
+          apiVersion: monitoring.coreos.com/v1
+          kind: ServiceMonitor
+          metadata:
+            name: controlcenter
+            namespace: confluent
+            labels:
+              app: controlcenter
+          spec:
+            selector:
+              matchLabels:
+                app: controlcenter
+            endpoints:
+              - port: prometheus
+                interval: 30s
+                path: /metrics
+            namespaceSelector:
+              matchNames:
+                - confluent
+          EOF
+
+      - name: Deploy PodMonitor for CFK Operator
+        run: |
+          oc apply -f - <<EOF
+          apiVersion: monitoring.coreos.com/v1
+          kind: PodMonitor
+          metadata:
+            name: confluent-operator
+            namespace: confluent-operator
+            labels:
+              app: confluent-operator
+          spec:
+            selector:
+              matchLabels:
+                app: confluent-operator
+            podMetricsEndpoints:
+              - port: metrics
+                interval: 30s
+            namespaceSelector:
+              matchNames:
+                - confluent-operator
+          EOF
+
+      - name: Deploy PrometheusRules (Alerts)
+        run: |
+          oc apply -f - <<EOF
+          apiVersion: monitoring.coreos.com/v1
+          kind: PrometheusRule
+          metadata:
+            name: confluent-alerts
+            namespace: confluent
+            labels:
+              prometheus: user-workload
+              role: alert-rules
+          spec:
+            groups:
+              - name: confluent.kafka
+                rules:
+                  - alert: KafkaBrokerDown
+                    expr: up{job="kafka"} == 0
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "Kafka broker is down"
+                      description: "Kafka broker {{ \$labels.instance }} has been down for more than 5 minutes."
+
+                  - alert: KafkaUnderReplicatedPartitions
+                    expr: kafka_server_replicamanager_underreplicatedpartitions > 0
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: "Kafka has under-replicated partitions"
+                      description: "Kafka broker {{ \$labels.instance }} has {{ \$value }} under-replicated partitions."
+
+                  - alert: KafkaOfflinePartitions
+                    expr: kafka_controller_kafkacontroller_offlinepartitionscount > 0
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "Kafka has offline partitions"
+                      description: "Kafka cluster has {{ \$value }} offline partitions."
+
+              - name: confluent.connect
+                rules:
+                  - alert: ConnectConnectorFailed
+                    expr: kafka_connect_connector_status{status="failed"} > 0
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "Kafka Connect connector failed"
+                      description: "Connector {{ \$labels.connector }} has failed."
+
+              - name: confluent.schemaregistry
+                rules:
+                  - alert: SchemaRegistryDown
+                    expr: up{job="schemaregistry"} == 0
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: "Schema Registry is down"
+                      description: "Schema Registry {{ \$labels.instance }} has been down for more than 5 minutes."
+          EOF
+
+      - name: Deploy DataDog Integration
+        if: github.event.inputs.enable_datadog == 'true'
+        run: |
+          # Create DataDog secret
+          oc create secret generic datadog-api-key \
+            --from-literal=api-key="${{ secrets.DATADOG_API_KEY }}" \
+            --namespace=confluent \
+            --dry-run=client -o yaml | oc apply -f -
+
+          # Add DataDog annotations to Confluent pods
+          # This would typically be done via pod template patches
+          echo "DataDog integration enabled. Configure pod annotations for auto-discovery."
+
+      - name: Verify Monitoring Setup
+        run: |
+          echo "ServiceMonitors:"
+          oc get servicemonitors -n confluent
+
+          echo ""
+          echo "PodMonitors:"
+          oc get podmonitors -n confluent-operator
+
+          echo ""
+          echo "PrometheusRules:"
+          oc get prometheusrules -n confluent
+
+          echo ""
+          echo "User Workload Monitoring Pods:"
+          oc get pods -n openshift-user-workload-monitoring
+
+      - name: Generate Summary
+        run: |
+          echo "## Monitoring Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**DataDog Enabled:** ${{ github.event.inputs.enable_datadog }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ServiceMonitors" >> $GITHUB_STEP_SUMMARY
+          echo "- kafka" >> $GITHUB_STEP_SUMMARY
+          echo "- kraftcontroller" >> $GITHUB_STEP_SUMMARY
+          echo "- schemaregistry" >> $GITHUB_STEP_SUMMARY
+          echo "- connect" >> $GITHUB_STEP_SUMMARY
+          echo "- ksqldb" >> $GITHUB_STEP_SUMMARY
+          echo "- controlcenter" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Alert Rules" >> $GITHUB_STEP_SUMMARY
+          echo "- KafkaBrokerDown (critical)" >> $GITHUB_STEP_SUMMARY
+          echo "- KafkaUnderReplicatedPartitions (warning)" >> $GITHUB_STEP_SUMMARY
+          echo "- KafkaOfflinePartitions (critical)" >> $GITHUB_STEP_SUMMARY
+          echo "- ConnectConnectorFailed (critical)" >> $GITHUB_STEP_SUMMARY
+          echo "- SchemaRegistryDown (critical)" >> $GITHUB_STEP_SUMMARY

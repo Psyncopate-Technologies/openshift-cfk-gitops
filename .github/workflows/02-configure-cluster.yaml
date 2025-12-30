@@ -1,0 +1,152 @@
+name: 02-Configure Cluster
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to configure'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+        default: 'dev'
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  configure:
+    name: Configure OpenShift Cluster
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download Terraform outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: terraform-outputs-${{ github.event.inputs.environment }}
+          path: ./terraform-outputs
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+          oc version --client
+
+      - name: Login to OpenShift
+        run: |
+          CLUSTER_API=$(jq -r '.cluster_api_url.value' terraform-outputs/terraform-outputs.json)
+          oc login "$CLUSTER_API" \
+            --username=cluster-admin \
+            --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            --insecure-skip-tls-verify=true
+
+      - name: Create Namespaces
+        run: |
+          # Create required namespaces
+          oc apply -f - <<EOF
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: confluent
+            labels:
+              app.kubernetes.io/managed-by: argocd
+          ---
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: confluent-operator
+            labels:
+              app.kubernetes.io/managed-by: argocd
+          ---
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: external-secrets
+            labels:
+              app.kubernetes.io/managed-by: argocd
+          EOF
+
+      - name: Apply Security Context Constraints
+        run: |
+          oc apply -f environments/${{ github.event.inputs.environment }}/cluster-config/scc.yaml
+
+      - name: Configure Image Pull Secret for ECR
+        run: |
+          ECR_REGISTRY=$(jq -r '.ecr_registry_url.value' terraform-outputs/terraform-outputs.json)
+
+          # Get ECR login token
+          ECR_TOKEN=$(aws ecr get-login-password --region ${{ env.AWS_REGION }})
+
+          # Create docker config
+          DOCKER_CONFIG=$(echo -n "AWS:${ECR_TOKEN}" | base64)
+
+          # Create pull secret in confluent namespace
+          oc create secret docker-registry ecr-pull-secret \
+            --docker-server="${ECR_REGISTRY}" \
+            --docker-username=AWS \
+            --docker-password="${ECR_TOKEN}" \
+            --namespace=confluent \
+            --dry-run=client -o yaml | oc apply -f -
+
+          # Create pull secret in confluent-operator namespace
+          oc create secret docker-registry ecr-pull-secret \
+            --docker-server="${ECR_REGISTRY}" \
+            --docker-username=AWS \
+            --docker-password="${ECR_TOKEN}" \
+            --namespace=confluent-operator \
+            --dry-run=client -o yaml | oc apply -f -
+
+          # Link to default service accounts
+          oc secrets link default ecr-pull-secret --for=pull -n confluent || true
+          oc secrets link default ecr-pull-secret --for=pull -n confluent-operator || true
+
+      - name: Apply Additional Cluster Configuration
+        run: |
+          # Apply any additional cluster config from kustomization
+          if [ -f "environments/${{ github.event.inputs.environment }}/cluster-config/kustomization.yaml" ]; then
+            oc apply -k environments/${{ github.event.inputs.environment }}/cluster-config/
+          fi
+
+      - name: Verify Configuration
+        run: |
+          echo "Verifying cluster configuration..."
+          echo ""
+          echo "Namespaces:"
+          oc get namespaces | grep -E "confluent|external-secrets"
+          echo ""
+          echo "Security Context Constraints:"
+          oc get scc confluent-scc -o yaml | head -30
+          echo ""
+          echo "Secrets in confluent namespace:"
+          oc get secrets -n confluent
+
+      - name: Generate Summary
+        run: |
+          echo "## Cluster Configuration Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Created Resources" >> $GITHUB_STEP_SUMMARY
+          echo "- Namespace: confluent" >> $GITHUB_STEP_SUMMARY
+          echo "- Namespace: confluent-operator" >> $GITHUB_STEP_SUMMARY
+          echo "- Namespace: external-secrets" >> $GITHUB_STEP_SUMMARY
+          echo "- SecurityContextConstraints: confluent-scc" >> $GITHUB_STEP_SUMMARY
+          echo "- ECR Pull Secrets configured" >> $GITHUB_STEP_SUMMARY
