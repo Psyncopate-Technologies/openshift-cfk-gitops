@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://github.com/Psyncopate-Technologies/openshift-cfk-gitops.git
     targetRevision: main
-    path: environments/dev/platform-dockerhub
+    path: environments/dev/confluent-platform
   destination:
     server: https://kubernetes.default.svc
     namespace: confluent

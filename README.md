@@ -109,7 +109,7 @@ openshift-cfk-gitops/
 │   └── dev/
 │       ├── argocd/            # ArgoCD Application manifests
 │       ├── cluster-config/     # Namespace and SCC definitions
-│       └── platform-dockerhub/ # Confluent Platform manifests
+│       └── confluent-platform/ # Confluent Platform manifests
 └── docs/                       # Documentation
 ```
 

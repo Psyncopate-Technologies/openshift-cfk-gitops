@@ -47,7 +47,7 @@ Run `99-deprovision-rosa` workflow when done testing. A cluster running 24/7 cos
 
 ### 3. Right-Size Confluent Components
 
-For development/testing, reduce replicas in `environments/dev/platform-dockerhub/`:
+For development/testing, reduce replicas in `environments/dev/confluent-platform/`:
 
 ```yaml
 # Reduce Kafka brokers

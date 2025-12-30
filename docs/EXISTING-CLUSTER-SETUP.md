@@ -105,7 +105,7 @@ oc get crds | grep confluent
 
 ```bash
 # Deploy using the simplified manifests
-oc apply -f environments/dev/platform-dockerhub/
+oc apply -f environments/dev/confluent-platform/
 ```
 
 ### Step 4: Monitor Deployment

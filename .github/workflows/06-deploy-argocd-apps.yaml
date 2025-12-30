@@ -78,7 +78,7 @@ jobs:
       - name: Update Manifests with Cluster Domain
         run: |
           APPS_DOMAIN="${{ steps.cluster.outputs.apps_domain }}"
-          sed -i "s/apps\.rm2\.thpm\.p1\.openshiftapps\.com/${APPS_DOMAIN}/g" environments/dev/platform-dockerhub/*.yaml
+          sed -i "s/apps\.rm2\.thpm\.p1\.openshiftapps\.com/${APPS_DOMAIN}/g" environments/dev/confluent-platform/*.yaml
           echo "Updated manifests with domain: ${APPS_DOMAIN}"
 
       - name: Deploy AppProject
