@@ -1,4 +1,4 @@
-name: 06-Deploy ArgoCD Apps
+name: 07-Deploy Confluent Platform
 
 on:
   workflow_dispatch:
@@ -6,17 +6,13 @@ on:
       cluster_name:
         description: 'ROSA cluster name'
         required: true
+        type: choice
         default: 'cfk-dev'
-      deploy_operator:
-        description: 'Deploy CFK Operator via ArgoCD'
-        required: true
-        type: boolean
-        default: true
-      deploy_platform:
-        description: 'Deploy Confluent Platform via ArgoCD'
-        required: true
-        type: boolean
-        default: true
+        options:
+          - cfk-dev
+          - cfk-stg
+          - cfk-prd
+          - cfk-dr
 
 env:
   AWS_REGION: us-east-1
@@ -27,7 +23,7 @@ permissions:
 
 jobs:
   deploy:
-    name: Deploy ArgoCD Applications
+    name: Deploy Confluent Platform via ArgoCD
     runs-on: ubuntu-latest
 
     steps:
@@ -68,6 +64,16 @@ jobs:
           echo "api_url=${API_URL}" >> $GITHUB_OUTPUT
           echo "apps_domain=apps.${DOMAIN}" >> $GITHUB_OUTPUT
 
+          # Determine custom domain based on cluster name
+          case "${{ github.event.inputs.cluster_name }}" in
+            cfk-dev) CUSTOM_DOMAIN="dev.confluent.psyncopate.io" ;;
+            cfk-stg) CUSTOM_DOMAIN="stg.confluent.psyncopate.io" ;;
+            cfk-prd) CUSTOM_DOMAIN="prd.confluent.psyncopate.io" ;;
+            cfk-dr)  CUSTOM_DOMAIN="dr.confluent.psyncopate.io" ;;
+            *)       CUSTOM_DOMAIN="dev.confluent.psyncopate.io" ;;
+          esac
+          echo "custom_domain=${CUSTOM_DOMAIN}" >> $GITHUB_OUTPUT
+
       - name: Login to OpenShift
         run: |
           oc login "${{ steps.cluster.outputs.api_url }}" \
@@ -75,41 +81,23 @@ jobs:
             --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
             --insecure-skip-tls-verify=true
 
+      - name: Verify CFK Operator is Running
+        run: |
+          echo "Checking if CFK Operator is running..."
+          if ! oc get deployment -n confluent -l app=confluent-operator -o name 2>/dev/null | grep -q deployment; then
+            echo "ERROR: CFK Operator is not deployed. Please run '06-Deploy CFK Operator' first."
+            exit 1
+          fi
+
+          echo "CFK Operator is running:"
+          oc get pods -n confluent -l app=confluent-operator
+
       - name: Deploy AppProject
         run: |
           # Update namespace in appproject if needed and apply
           sed 's/namespace: argocd/namespace: openshift-gitops/g' env/dev/argocd/appproject.yaml | oc apply -f -
 
-      - name: Deploy CFK Operator Application
-        if: ${{ github.event.inputs.deploy_operator == 'true' }}
-        run: |
-          echo "Deploying CFK Operator via ArgoCD..."
-          # Update namespace in application if needed and apply
-          sed 's/namespace: argocd/namespace: openshift-gitops/g' env/dev/argocd/cfk-operator-app.yaml | oc apply -f -
-
-          echo "Waiting for CFK Operator to sync..."
-          sleep 30
-
-          # Wait for sync
-          for i in {1..30}; do
-            STATUS=$(oc get application cfk-operator -n openshift-gitops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
-            HEALTH=$(oc get application cfk-operator -n openshift-gitops -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
-            echo "CFK Operator - Sync: $STATUS, Health: $HEALTH (attempt $i/30)"
-            if [ "$STATUS" == "Synced" ] && [ "$HEALTH" == "Healthy" ]; then
-              echo "CFK Operator is synced and healthy!"
-              break
-            fi
-            sleep 20
-          done
-
-      - name: Grant SCC to Operator Service Account
-        if: ${{ github.event.inputs.deploy_operator == 'true' }}
-        run: |
-          oc adm policy add-scc-to-user confluent-scc \
-            system:serviceaccount:confluent:confluent-for-kubernetes || true
-
       - name: Deploy Confluent Platform Application
-        if: ${{ github.event.inputs.deploy_platform == 'true' }}
         run: |
           echo "Deploying Confluent Platform via ArgoCD..."
           # Update namespace in application if needed and apply
@@ -130,20 +118,20 @@ jobs:
             sleep 20
           done
 
-      - name: Verify ArgoCD Applications
+      - name: Verify Confluent Platform Components
         run: |
-          echo "=== ArgoCD Applications ==="
-          oc get applications -n openshift-gitops
+          echo "=== Confluent Platform Pods ==="
+          oc get pods -n confluent
           echo ""
-          echo "=== Application Details ==="
-          oc get applications -n openshift-gitops -o wide
+          echo "=== ArgoCD Application Status ==="
+          oc get application confluent-platform -n openshift-gitops -o wide
 
       - name: Generate Summary
         run: |
-          CUSTOM_DOMAIN="dev.confluent.psyncopate.io"
+          CUSTOM_DOMAIN="${{ steps.cluster.outputs.custom_domain }}"
           ARGOCD_URL=$(oc get route openshift-gitops-server -n openshift-gitops -o jsonpath='{.spec.host}' 2>/dev/null || echo "N/A")
 
-          echo "## ArgoCD Applications Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## Confluent Platform Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Cluster:** ${{ github.event.inputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**ArgoCD UI:** https://${ARGOCD_URL}" >> $GITHUB_STEP_SUMMARY
@@ -153,17 +141,9 @@ jobs:
           echo "| Application | Sync Status | Health |" >> $GITHUB_STEP_SUMMARY
           echo "|-------------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ github.event.inputs.deploy_operator }}" == "true" ]; then
-            SYNC=$(oc get application cfk-operator -n openshift-gitops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "N/A")
-            HEALTH=$(oc get application cfk-operator -n openshift-gitops -o jsonpath='{.status.health.status}' 2>/dev/null || echo "N/A")
-            echo "| cfk-operator | ${SYNC} | ${HEALTH} |" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ "${{ github.event.inputs.deploy_platform }}" == "true" ]; then
-            SYNC=$(oc get application confluent-platform -n openshift-gitops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "N/A")
-            HEALTH=$(oc get application confluent-platform -n openshift-gitops -o jsonpath='{.status.health.status}' 2>/dev/null || echo "N/A")
-            echo "| confluent-platform | ${SYNC} | ${HEALTH} |" >> $GITHUB_STEP_SUMMARY
-          fi
+          SYNC=$(oc get application confluent-platform -n openshift-gitops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "N/A")
+          HEALTH=$(oc get application confluent-platform -n openshift-gitops -o jsonpath='{.status.health.status}' 2>/dev/null || echo "N/A")
+          echo "| confluent-platform | ${SYNC} | ${HEALTH} |" >> $GITHUB_STEP_SUMMARY
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### GitOps Benefits" >> $GITHUB_STEP_SUMMARY
@@ -184,5 +164,5 @@ jobs:
           echo "### DNS Setup Required" >> $GITHUB_STEP_SUMMARY
           echo "Create a wildcard CNAME record in your DNS:" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "*.dev.confluent.psyncopate.io -> *.apps.${{ steps.cluster.outputs.apps_domain }}" >> $GITHUB_STEP_SUMMARY
+          echo "*.${CUSTOM_DOMAIN} -> *.apps.${{ steps.cluster.outputs.apps_domain }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

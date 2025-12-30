@@ -1,0 +1,137 @@
+name: 06-Deploy CFK Operator
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_name:
+        description: 'ROSA cluster name'
+        required: true
+        type: choice
+        default: 'cfk-dev'
+        options:
+          - cfk-dev
+          - cfk-stg
+          - cfk-prd
+          - cfk-dr
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy CFK Operator via ArgoCD
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install ROSA CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz
+          tar -xzf rosa-linux.tar.gz
+          sudo mv rosa /usr/local/bin/
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+
+      - name: Login to ROSA
+        run: |
+          rosa login --token="${{ secrets.RHCS_TOKEN }}"
+
+      - name: Get Cluster Info
+        id: cluster
+        run: |
+          rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" --output json > cluster-info.json
+
+          API_URL=$(jq -r '.api.url' cluster-info.json)
+          DOMAIN=$(jq -r '.dns.base_domain' cluster-info.json)
+
+          echo "api_url=${API_URL}" >> $GITHUB_OUTPUT
+          echo "apps_domain=apps.${DOMAIN}" >> $GITHUB_OUTPUT
+
+      - name: Login to OpenShift
+        run: |
+          oc login "${{ steps.cluster.outputs.api_url }}" \
+            --username=cluster-admin \
+            --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            --insecure-skip-tls-verify=true
+
+      - name: Deploy AppProject
+        run: |
+          # Update namespace in appproject if needed and apply
+          sed 's/namespace: argocd/namespace: openshift-gitops/g' env/dev/argocd/appproject.yaml | oc apply -f -
+
+      - name: Deploy CFK Operator Application
+        run: |
+          echo "Deploying CFK Operator via ArgoCD..."
+          # Update namespace in application if needed and apply
+          sed 's/namespace: argocd/namespace: openshift-gitops/g' env/dev/argocd/cfk-operator-app.yaml | oc apply -f -
+
+          echo "Waiting for CFK Operator to sync..."
+          sleep 30
+
+          # Wait for sync
+          for i in {1..30}; do
+            STATUS=$(oc get application cfk-operator -n openshift-gitops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
+            HEALTH=$(oc get application cfk-operator -n openshift-gitops -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
+            echo "CFK Operator - Sync: $STATUS, Health: $HEALTH (attempt $i/30)"
+            if [ "$STATUS" == "Synced" ] && [ "$HEALTH" == "Healthy" ]; then
+              echo "CFK Operator is synced and healthy!"
+              break
+            fi
+            sleep 20
+          done
+
+      - name: Grant SCC to Operator Service Account
+        run: |
+          oc adm policy add-scc-to-user confluent-scc \
+            system:serviceaccount:confluent:confluent-for-kubernetes || true
+
+      - name: Verify CFK Operator
+        run: |
+          echo "=== CFK Operator Pods ==="
+          oc get pods -n confluent -l app=confluent-operator
+          echo ""
+          echo "=== ArgoCD Application Status ==="
+          oc get application cfk-operator -n openshift-gitops -o wide
+
+      - name: Generate Summary
+        run: |
+          ARGOCD_URL=$(oc get route openshift-gitops-server -n openshift-gitops -o jsonpath='{.spec.host}' 2>/dev/null || echo "N/A")
+
+          echo "## CFK Operator Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** ${{ github.event.inputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**ArgoCD UI:** https://${ARGOCD_URL}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Application Status" >> $GITHUB_STEP_SUMMARY
+          echo "| Application | Sync Status | Health |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          SYNC=$(oc get application cfk-operator -n openshift-gitops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "N/A")
+          HEALTH=$(oc get application cfk-operator -n openshift-gitops -o jsonpath='{.status.health.status}' 2>/dev/null || echo "N/A")
+          echo "| cfk-operator | ${SYNC} | ${HEALTH} |" >> $GITHUB_STEP_SUMMARY
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### CFK Operator Details" >> $GITHUB_STEP_SUMMARY
+          echo "- **Namespace:** confluent" >> $GITHUB_STEP_SUMMARY
+          echo "- **Helm Chart:** confluent-for-kubernetes" >> $GITHUB_STEP_SUMMARY
+          echo "- **Chart Version:** 0.1351.59 (CFK 3.1.1)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "Run **07-Deploy Confluent Platform** to deploy Confluent Platform components" >> $GITHUB_STEP_SUMMARY
