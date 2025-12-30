@@ -131,6 +131,26 @@ jobs:
 
           echo "Docker Hub image pull secrets created"
 
+      - name: Create CA Certificate for TLS
+        run: |
+          # Generate CA certificate for CFK auto-generated TLS certificates
+          openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout /tmp/ca-key.pem \
+            -out /tmp/ca.pem \
+            -subj "/CN=confluent-ca/O=Confluent/C=US"
+
+          # Create the CA secret that CFK uses for auto-generated certificates
+          oc create secret tls ca-pair-sslcerts \
+            --cert=/tmp/ca.pem \
+            --key=/tmp/ca-key.pem \
+            -n confluent \
+            --dry-run=client -o yaml | oc apply -f -
+
+          # Clean up temporary files
+          rm -f /tmp/ca-key.pem /tmp/ca.pem
+
+          echo "CA certificate secret created for TLS"
+
       - name: Save Cluster Configuration
         run: |
           mkdir -p cluster-config
@@ -162,6 +182,12 @@ jobs:
           echo "Security Context Constraints:"
           oc get scc confluent-scc
           echo ""
+          echo "Secrets in confluent namespace:"
+          oc get secrets -n confluent | grep -E "dockerhub-secret|ca-pair-sslcerts"
+          echo ""
+          echo "Secrets in confluent-operator namespace:"
+          oc get secrets -n confluent-operator | grep -E "dockerhub-secret"
+          echo ""
 
       - name: Generate Summary
         run: |
@@ -176,6 +202,7 @@ jobs:
           echo "- Namespace: confluent-operator" >> $GITHUB_STEP_SUMMARY
           echo "- SecurityContextConstraints: confluent-scc" >> $GITHUB_STEP_SUMMARY
           echo "- Secret: dockerhub-secret (image pull)" >> $GITHUB_STEP_SUMMARY
+          echo "- Secret: ca-pair-sslcerts (TLS CA certificate)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
           echo "Run **06-Deploy CFK Operator** workflow" >> $GITHUB_STEP_SUMMARY
