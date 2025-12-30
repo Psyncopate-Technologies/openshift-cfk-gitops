@@ -29,6 +29,8 @@ spec:
     type: route
     route:
       domain: dev.confluent.psyncopate.io
+      annotations:
+        route.openshift.io/termination: reencrypt
   dependencies:
     kafka:
       bootstrapEndpoint: kafka.confluent.svc.cluster.local:9071
