@@ -1,0 +1,31 @@
+apiVersion: platform.confluent.io/v1beta1
+kind: KafkaRestProxy
+metadata:
+  name: kafkarestproxy
+  namespace: confluent
+spec:
+  replicas: 1
+  image:
+    application: confluentinc/cp-kafka-rest:7.7.1
+    init: confluentinc/confluent-init-container:2.10.0
+  podTemplate:
+    resources:
+      requests:
+        cpu: "250m"
+        memory: 512Mi
+      limits:
+        cpu: "500m"
+        memory: 1Gi
+    podSecurityContext:
+      fsGroup: 1000
+      runAsUser: 1000
+      runAsNonRoot: true
+  externalAccess:
+    type: route
+    route:
+      domain: apps.rm2.thpm.p1.openshiftapps.com
+  dependencies:
+    kafka:
+      bootstrapEndpoint: kafka.confluent.svc.cluster.local:9092
+    schemaRegistry:
+      url: http://schemaregistry.confluent.svc.cluster.local:8081
