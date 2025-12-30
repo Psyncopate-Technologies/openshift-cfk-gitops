@@ -34,7 +34,7 @@ data "aws_availability_zones" "available" {
 
 module "rosa_cluster" {
   source  = "terraform-redhat/rosa-classic/rhcs"
-  version = "1.6.2"
+  version = "1.7.1"
 
   # Cluster configuration
   cluster_name      = var.cluster_name
