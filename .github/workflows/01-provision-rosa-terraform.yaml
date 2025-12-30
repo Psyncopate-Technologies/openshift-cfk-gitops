@@ -23,23 +23,23 @@ on:
           - destroy
         default: 'plan'
       override_cluster_name:
-        description: 'Override cluster name (leave empty to use environment default)'
+        description: 'Override cluster name (default: cfk-<env>)'
         required: false
         default: ''
       override_compute_nodes:
-        description: 'Override compute nodes (leave empty to use environment default)'
+        description: 'Override compute nodes (default: dev=2, others=3)'
         required: false
         default: ''
       override_instance_type:
-        description: 'Override instance type (leave empty to use environment default)'
+        description: 'Override instance type (default: dev/stg=m5.xlarge, prd/dr=m5.2xlarge)'
         required: false
         type: choice
         options:
-          - ''
+          - (use environment default)
           - m5.xlarge
           - m5.2xlarge
           - m5.4xlarge
-        default: ''
+        default: '(use environment default)'
 
 env:
   AWS_REGION: us-east-1
@@ -116,7 +116,7 @@ jobs:
           if [ -n "${{ github.event.inputs.override_compute_nodes }}" ]; then
             OVERRIDE_ARGS="$OVERRIDE_ARGS -var=compute_nodes=${{ github.event.inputs.override_compute_nodes }}"
           fi
-          if [ -n "${{ github.event.inputs.override_instance_type }}" ]; then
+          if [ -n "${{ github.event.inputs.override_instance_type }}" ] && [ "${{ github.event.inputs.override_instance_type }}" != "(use environment default)" ]; then
             OVERRIDE_ARGS="$OVERRIDE_ARGS -var=compute_machine_type=${{ github.event.inputs.override_instance_type }}"
           fi
 
