@@ -6,17 +6,22 @@ on:
       cluster_name:
         description: 'ROSA cluster name'
         required: true
-        default: 'cfk-test'
+        type: choice
+        default: 'cfk-dev'
+        options:
+          - cfk-dev
+          - cfk-stg
+          - cfk-prd
+          - cfk-dr
       environment:
         description: 'Environment to configure'
         required: true
         type: choice
         options:
-          - minimal
           - dev
           - staging
           - prod
-        default: 'minimal'
+        default: 'dev'
 
 env:
   AWS_REGION: us-east-1
