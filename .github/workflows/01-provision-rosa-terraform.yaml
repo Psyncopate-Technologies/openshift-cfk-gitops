@@ -91,7 +91,7 @@ jobs:
         id: init
         run: |
           terraform init \
-            -backend-config="environments/${{ github.event.inputs.environment }}/backend.tfvars"
+            -backend-config="env/${{ github.event.inputs.environment }}/backend.tfvars"
         env:
           TF_VAR_rhcs_token: ${{ secrets.RHCS_TOKEN }}
 
@@ -121,7 +121,7 @@ jobs:
           fi
 
           terraform plan \
-            -var-file="environments/${{ github.event.inputs.environment }}/terraform.tfvars" \
+            -var-file="env/${{ github.event.inputs.environment }}/terraform.tfvars" \
             -var="rhcs_token=${{ secrets.RHCS_TOKEN }}" \
             -var="admin_password=${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
             $OVERRIDE_ARGS \
@@ -157,7 +157,7 @@ jobs:
           fi
 
           terraform destroy \
-            -var-file="environments/${{ github.event.inputs.environment }}/terraform.tfvars" \
+            -var-file="env/${{ github.event.inputs.environment }}/terraform.tfvars" \
             -var="rhcs_token=${{ secrets.RHCS_TOKEN }}" \
             -var="admin_password=${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
             $OVERRIDE_ARGS \

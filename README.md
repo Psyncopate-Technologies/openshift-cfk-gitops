@@ -179,7 +179,7 @@ openshift-cfk-gitops/
 │   ├── outputs.tf                  # Output values
 │   ├── versions.tf                 # Provider configuration
 │   ├── README.md                   # Terraform docs
-│   └── environments/               # Environment-specific configs
+│   └── env/                        # Environment-specific configs
 │       ├── dev/                    # Development
 │       ├── stg/                    # Staging
 │       ├── prd/                    # Production

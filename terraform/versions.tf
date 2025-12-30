@@ -21,7 +21,7 @@ terraform {
   }
 
   # S3 backend for state management (configured per environment)
-  # Initialize with: terraform init -backend-config=environments/<env>/backend.tfvars
+  # Initialize with: terraform init -backend-config=env/<env>/backend.tfvars
   backend "s3" {
     # Values provided via -backend-config flag
   }

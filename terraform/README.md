@@ -10,7 +10,7 @@ terraform/
 ├── variables.tf               # Input variables
 ├── outputs.tf                 # Output values
 ├── versions.tf                # Provider and backend config
-└── environments/
+└── env/
     ├── dev/
     │   ├── terraform.tfvars   # Dev cluster config
     │   └── backend.tfvars     # Dev state backend
@@ -81,23 +81,23 @@ export TF_VAR_rhcs_token="your-rhcs-token"
 export TF_VAR_admin_password="your-secure-password"
 
 # Initialize for dev environment
-terraform init -backend-config=environments/dev/backend.tfvars
+terraform init -backend-config=env/dev/backend.tfvars
 
 # Plan
-terraform plan -var-file=environments/dev/terraform.tfvars
+terraform plan -var-file=env/dev/terraform.tfvars
 
 # Apply
-terraform apply -var-file=environments/dev/terraform.tfvars
+terraform apply -var-file=env/dev/terraform.tfvars
 ```
 
 ### Switching Environments
 
 ```bash
 # Re-initialize for a different environment
-terraform init -backend-config=environments/prd/backend.tfvars -reconfigure
+terraform init -backend-config=env/prd/backend.tfvars -reconfigure
 
 # Plan production
-terraform plan -var-file=environments/prd/terraform.tfvars
+terraform plan -var-file=env/prd/terraform.tfvars
 ```
 
 ## Environment Variables
@@ -144,8 +144,8 @@ Benefits:
 
 ```bash
 # Destroy specific environment
-terraform init -backend-config=environments/dev/backend.tfvars -reconfigure
-terraform destroy -var-file=environments/dev/terraform.tfvars
+terraform init -backend-config=env/dev/backend.tfvars -reconfigure
+terraform destroy -var-file=env/dev/terraform.tfvars
 ```
 
 Or via GitHub Actions with action: `destroy`
