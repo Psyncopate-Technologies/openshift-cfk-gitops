@@ -84,7 +84,7 @@ jobs:
       - name: Verify CFK Operator is Running
         run: |
           echo "Checking if CFK Operator is running..."
-          if ! oc get deployment confluent-for-kubernetes -n confluent-operator -o name 2>/dev/null | grep -q deployment; then
+          if ! oc get deployment confluent-operator -n confluent-operator -o name 2>/dev/null | grep -q deployment; then
             echo "ERROR: CFK Operator is not deployed. Please run '04-Deploy CFK Operator' first."
             exit 1
           fi
