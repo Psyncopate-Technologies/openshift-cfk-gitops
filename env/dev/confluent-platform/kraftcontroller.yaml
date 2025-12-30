@@ -37,6 +37,11 @@ spec:
               topologyKey: topology.kubernetes.io/zone
   tls:
     secretRef: kraftcontroller-tls
+  listeners:
+    controller:
+      tls:
+        enabled: true
+        secretRef: ca-pair-sslcerts-truststore
   configOverrides:
     server:
       - controller.quorum.election.timeout.ms=5000
