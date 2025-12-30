@@ -43,7 +43,7 @@ output "apps_domain" {
 
 output "infra_id" {
   description = "Cluster infrastructure ID"
-  value       = rhcs_cluster_rosa_classic.cluster.infra_id
+  value       = rhcs_cluster_rosa_classic.cluster.id
 }
 
 # =============================================================================
@@ -52,17 +52,17 @@ output "infra_id" {
 
 output "machine_cidr" {
   description = "Machine CIDR"
-  value       = rhcs_cluster_rosa_classic.cluster.machine_cidr
+  value       = var.machine_cidr
 }
 
 output "service_cidr" {
   description = "Service CIDR"
-  value       = rhcs_cluster_rosa_classic.cluster.service_cidr
+  value       = var.service_cidr
 }
 
 output "pod_cidr" {
   description = "Pod CIDR"
-  value       = rhcs_cluster_rosa_classic.cluster.pod_cidr
+  value       = var.pod_cidr
 }
 
 # =============================================================================
