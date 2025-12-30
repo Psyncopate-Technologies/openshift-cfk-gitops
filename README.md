@@ -162,16 +162,45 @@ openshift-cfk-gitops/
 
 **Important:** Run the deprovision workflow when done testing to stop AWS charges!
 
-## Accessing the Platform
+## Custom Domain Setup
 
-After deployment, access URLs are provided in the workflow summary:
+This project uses a custom domain `dev.confluent.psyncopate.io` for accessing Confluent Platform components. To set this up:
 
-- **ArgoCD:** `https://argocd-server.<apps-domain>` (if using GitOps)
-- **Control Center:** `https://controlcenter.<apps-domain>`
-- **Schema Registry:** `https://schemaregistry.<apps-domain>`
-- **Connect:** `https://connect.<apps-domain>`
-- **ksqlDB:** `https://ksqldb.<apps-domain>`
-- **REST Proxy:** `https://kafkarestproxy.<apps-domain>`
+### DNS Configuration
+
+Create a wildcard CNAME record pointing to your ROSA cluster's apps domain:
+
+```
+*.dev.confluent.psyncopate.io -> *.apps.<cluster-name>.<base-domain>
+```
+
+For example, if your ROSA cluster has the apps domain `apps.cfk-test.xxxx.p1.openshiftapps.com`:
+
+```
+*.dev.confluent.psyncopate.io CNAME *.apps.cfk-test.xxxx.p1.openshiftapps.com
+```
+
+### Access URLs
+
+Once DNS is configured, access Confluent Platform at:
+
+| Component | URL |
+|-----------|-----|
+| Control Center | https://controlcenter.dev.confluent.psyncopate.io |
+| Schema Registry | https://schemaregistry.dev.confluent.psyncopate.io |
+| Connect | https://connect.dev.confluent.psyncopate.io |
+| ksqlDB | https://ksqldb.dev.confluent.psyncopate.io |
+| REST Proxy | https://kafkarestproxy.dev.confluent.psyncopate.io |
+
+ArgoCD (if using GitOps option) is accessed via the default OpenShift route:
+- **ArgoCD:** `https://argocd-server-argocd.apps.<cluster-domain>`
+
+### Multi-Environment Support
+
+The domain pattern supports multiple environments:
+- **Dev:** `*.dev.confluent.psyncopate.io`
+- **Staging:** `*.staging.confluent.psyncopate.io` (create separate env folder)
+- **Prod:** `*.prod.confluent.psyncopate.io` (create separate env folder)
 
 ## Documentation
 

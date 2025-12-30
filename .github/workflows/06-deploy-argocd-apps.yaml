@@ -75,12 +75,6 @@ jobs:
             --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
             --insecure-skip-tls-verify=true
 
-      - name: Update Manifests with Cluster Domain
-        run: |
-          APPS_DOMAIN="${{ steps.cluster.outputs.apps_domain }}"
-          sed -i "s/apps\.rm2\.thpm\.p1\.openshiftapps\.com/${APPS_DOMAIN}/g" env/dev/confluent-platform/*.yaml
-          echo "Updated manifests with domain: ${APPS_DOMAIN}"
-
       - name: Deploy AppProject
         run: |
           oc apply -f env/dev/argocd/appproject.yaml
@@ -143,13 +137,14 @@ jobs:
 
       - name: Generate Summary
         run: |
-          APPS_DOMAIN="${{ steps.cluster.outputs.apps_domain }}"
+          CUSTOM_DOMAIN="dev.confluent.psyncopate.io"
           ARGOCD_URL=$(oc get route argocd-server -n argocd -o jsonpath='{.spec.host}' 2>/dev/null || echo "N/A")
 
           echo "## ArgoCD Applications Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Cluster:** ${{ github.event.inputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**ArgoCD UI:** https://${ARGOCD_URL}" >> $GITHUB_STEP_SUMMARY
+          echo "**Custom Domain:** ${CUSTOM_DOMAIN}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Application Status" >> $GITHUB_STEP_SUMMARY
           echo "| Application | Sync Status | Health |" >> $GITHUB_STEP_SUMMARY
@@ -173,9 +168,18 @@ jobs:
           echo "- **Self-heal:** Drift from desired state is automatically corrected" >> $GITHUB_STEP_SUMMARY
           echo "- **Prune:** Removed resources are automatically deleted" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Access URLs" >> $GITHUB_STEP_SUMMARY
+          echo "### Access URLs (once DNS is configured)" >> $GITHUB_STEP_SUMMARY
           echo "| Component | URL |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|-----|" >> $GITHUB_STEP_SUMMARY
           echo "| ArgoCD | https://${ARGOCD_URL} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Control Center | https://controlcenter.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Schema Registry | https://schemaregistry.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Control Center | https://controlcenter.${CUSTOM_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Schema Registry | https://schemaregistry.${CUSTOM_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Connect | https://connect.${CUSTOM_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ksqlDB | https://ksqldb.${CUSTOM_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| REST Proxy | https://kafkarestproxy.${CUSTOM_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### DNS Setup Required" >> $GITHUB_STEP_SUMMARY
+          echo "Create a wildcard CNAME record in your DNS:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "*.dev.confluent.psyncopate.io -> *.apps.${{ steps.cluster.outputs.apps_domain }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

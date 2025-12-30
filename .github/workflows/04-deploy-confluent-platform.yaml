@@ -68,15 +68,6 @@ jobs:
             --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
             --insecure-skip-tls-verify=true
 
-      - name: Update Manifests with Cluster Domain
-        run: |
-          APPS_DOMAIN="${{ steps.cluster.outputs.apps_domain }}"
-
-          # Update Kafka manifest with correct domain
-          sed -i "s/apps\.rm2\.thpm\.p1\.openshiftapps\.com/${APPS_DOMAIN}/g" env/dev/confluent-platform/*.yaml
-
-          echo "Updated manifests with domain: ${APPS_DOMAIN}"
-
       - name: Deploy Confluent Platform
         run: |
           echo "Deploying Confluent Platform components..."
@@ -139,12 +130,12 @@ jobs:
 
       - name: Generate Summary
         run: |
-          APPS_DOMAIN="${{ steps.cluster.outputs.apps_domain }}"
+          CUSTOM_DOMAIN="dev.confluent.psyncopate.io"
 
           echo "## Confluent Platform Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Cluster:** ${{ github.event.inputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Apps Domain:** ${APPS_DOMAIN}" >> $GITHUB_STEP_SUMMARY
+          echo "**Custom Domain:** ${CUSTOM_DOMAIN}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Component Status" >> $GITHUB_STEP_SUMMARY
           echo "| Component | Phase |" >> $GITHUB_STEP_SUMMARY
@@ -157,11 +148,17 @@ jobs:
           echo "| Control Center | $(oc get controlcenter controlcenter -n confluent -o jsonpath='{.status.phase}' 2>/dev/null || echo 'N/A') |" >> $GITHUB_STEP_SUMMARY
           echo "| REST Proxy | $(oc get kafkarestproxy kafkarestproxy -n confluent -o jsonpath='{.status.phase}' 2>/dev/null || echo 'N/A') |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Access URLs (once running)" >> $GITHUB_STEP_SUMMARY
+          echo "### Access URLs (once DNS is configured)" >> $GITHUB_STEP_SUMMARY
           echo "| Component | URL |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|-----|" >> $GITHUB_STEP_SUMMARY
-          echo "| Control Center | https://controlcenter.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Schema Registry | https://schemaregistry.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Connect | https://connect.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
-          echo "| ksqlDB | https://ksqldb.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
-          echo "| REST Proxy | https://kafkarestproxy.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Control Center | https://controlcenter.${CUSTOM_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Schema Registry | https://schemaregistry.${CUSTOM_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Connect | https://connect.${CUSTOM_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ksqlDB | https://ksqldb.${CUSTOM_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| REST Proxy | https://kafkarestproxy.${CUSTOM_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### DNS Setup Required" >> $GITHUB_STEP_SUMMARY
+          echo "Create a wildcard CNAME record in your DNS:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "*.dev.confluent.psyncopate.io -> *.apps.${{ steps.cluster.outputs.apps_domain }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

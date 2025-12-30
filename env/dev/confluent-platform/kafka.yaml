@@ -50,7 +50,7 @@ spec:
       externalAccess:
         type: route
         route:
-          domain: apps.rm2.thpm.p1.openshiftapps.com
+          domain: dev.confluent.psyncopate.io
   dependencies:
     kRaftController:
       clusterRef:
