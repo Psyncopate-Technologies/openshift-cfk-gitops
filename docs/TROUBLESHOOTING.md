@@ -2,53 +2,65 @@
 
 This guide covers common issues and their solutions when deploying Confluent Platform on OpenShift.
 
-## Infrastructure Issues
+## Workflow Issues
 
-### Terraform State Lock
+### "Cluster not found" Error
 
-**Symptom:** Terraform fails with "Error acquiring the state lock"
+**Symptom:** Workflows 02, 03, or 04 fail with "cluster not found"
+
+**Causes:**
+1. Cluster name mismatch between workflows
+2. Cluster still provisioning
+3. Cluster failed to create
 
 **Solution:**
 ```bash
-# Check for running workflows first
-# If no workflows running, force unlock
-terraform force-unlock <LOCK_ID>
+# Check cluster status via ROSA CLI
+rosa describe cluster -c <cluster-name>
+
+# List all clusters
+rosa list clusters
 ```
+
+### OpenShift Login Fails
+
+**Symptom:** Workflow fails at "Login to OpenShift" step
+
+**Causes:**
+1. `OPENSHIFT_ADMIN_PASSWORD` secret not set
+2. Cluster not ready
+3. API endpoint not accessible
+
+**Solution:**
+1. Check workflow 01 logs for admin password
+2. Add/update `OPENSHIFT_ADMIN_PASSWORD` secret
+3. Verify cluster state is "ready"
 
 ### ROSA Cluster Creation Fails
 
-**Symptom:** Terraform timeout or "Cluster creation failed"
+**Symptom:** Workflow 01 fails during cluster creation
 
 **Causes:**
 1. AWS quota exceeded
 2. Invalid RHCS token
-3. Network configuration issues
+3. Account roles not created
 
 **Solution:**
 ```bash
-# Verify AWS quotas
+# Check AWS quotas
 rosa verify quota
 
-# Check RHCS token
+# Verify RHCS token
 rosa login --token="$RHCS_TOKEN"
 rosa whoami
 
-# Check ROSA status
-rosa describe cluster -c <cluster-name>
+# Check account roles
+rosa list account-roles
 ```
-
-### VPC/Subnet Issues
-
-**Symptom:** "Insufficient IP addresses" or subnet creation fails
-
-**Solution:**
-1. Check CIDR blocks don't overlap
-2. Verify no existing VPCs with same CIDR
-3. Increase subnet sizes if needed
 
 ## Cluster Configuration Issues
 
-### Pod Security Admission Errors
+### Pod Security Errors
 
 **Symptom:** Pods fail to start with security context errors
 
@@ -60,36 +72,29 @@ oc get scc confluent-scc
 # Check SCC users
 oc describe scc confluent-scc | grep Users
 
-# Add service account to SCC if missing
+# Manually add service account to SCC if missing
 oc adm policy add-scc-to-user confluent-scc \
   system:serviceaccount:confluent:default
 ```
 
-### ECR Pull Errors
+### Image Pull Errors
 
 **Symptom:** "ImagePullBackOff" or "ErrImagePull"
 
 **Causes:**
-1. ECR credentials expired
-2. Images not mirrored
-3. Wrong image path
+1. Docker Hub rate limiting
+2. Network connectivity issues
+3. Wrong image tag
 
 **Solution:**
 ```bash
-# Check if secret exists
-oc get secret ecr-pull-secret -n confluent
+# Check pod events
+oc describe pod <pod-name> -n confluent
 
-# Refresh ECR credentials
-aws ecr get-login-password --region us-east-1 | \
-  oc create secret docker-registry ecr-pull-secret \
-    --docker-server=<ECR_URL> \
-    --docker-username=AWS \
-    --docker-password-stdin \
-    -n confluent \
-    --dry-run=client -o yaml | oc apply -f -
+# Check image pull status
+oc get events -n confluent | grep -i pull
 
-# Verify images exist in ECR
-aws ecr describe-images --repository-name confluent/cp-server
+# If rate limited, wait or add Docker Hub credentials
 ```
 
 ## Confluent Platform Issues
@@ -109,12 +114,12 @@ oc describe pod kraftcontroller-0 -n confluent
 # Check logs
 oc logs kraftcontroller-0 -n confluent
 
-# Check PVC
+# Check PVC binding
 oc get pvc -n confluent | grep kraftcontroller
 ```
 
 **Common causes:**
-1. Insufficient resources
+1. Insufficient node resources
 2. PVC not binding (storage class issue)
 3. Security context not allowed
 
@@ -127,10 +132,10 @@ oc get pvc -n confluent | grep kraftcontroller
 # Verify KRaft is running
 oc get kraftcontroller -n confluent
 
-# Check KRaft controller endpoints
+# Check KRaft endpoints
 oc get endpoints kraftcontroller -n confluent
 
-# Check Kafka logs
+# Check Kafka logs for controller connectivity
 oc logs kafka-0 -n confluent | grep -i controller
 ```
 
@@ -169,154 +174,62 @@ oc exec connect-0 -n confluent -- \
   curl -s localhost:8083/connectors/<connector-name>/status | jq .
 ```
 
-## External Secrets Issues
+### Control Center Not Accessible
 
-### Secrets Not Syncing
-
-**Symptom:** ExternalSecret shows "SecretSyncedError"
+**Symptom:** Control Center route returns 503 or connection refused
 
 **Debugging:**
 ```bash
-# Check ExternalSecret status
-oc describe externalsecret confluent-credentials -n confluent
+# Check Control Center pod
+oc get pods -n confluent -l app=controlcenter
 
-# Check SecretStore status
-oc describe secretstore aws-secrets-manager -n confluent
+# Check route
+oc get route controlcenter -n confluent
 
-# Verify IRSA is working
-oc describe serviceaccount external-secrets-sa -n confluent
+# Check service endpoints
+oc get endpoints controlcenter -n confluent
+
+# Check logs
+oc logs controlcenter-0 -n confluent
 ```
 
-**Solution:**
-```bash
-# Test AWS access from pod
-oc run aws-test --rm -it --image=amazon/aws-cli -- \
-  sts get-caller-identity
+## Resource Issues
 
-# Verify secret exists in AWS
-aws secretsmanager get-secret-value \
-  --secret-id confluent/dev/credentials
-```
+### Pods Pending Due to Resources
 
-## cert-manager Issues
-
-### Certificate Not Issued
-
-**Symptom:** Certificate stuck in "Pending" state
+**Symptom:** Pods stuck in "Pending" state
 
 **Debugging:**
 ```bash
-# Check certificate status
-oc describe certificate wildcard-tls -n confluent
-
-# Check certificate request
-oc get certificaterequest -n confluent
-
-# Check challenges
-oc get challenges -n confluent
-
-# Check ClusterIssuer
-oc describe clusterissuer letsencrypt-staging
-```
-
-**Common causes:**
-1. DNS propagation delay
-2. Route53 permissions
-3. Rate limiting (use staging first)
-
-**Solution:**
-```bash
-# Check cert-manager logs
-oc logs -n cert-manager -l app=cert-manager
-
-# Verify Route53 access
-aws route53 list-hosted-zones
-```
-
-## ArgoCD Issues
-
-### Application Out of Sync
-
-**Symptom:** ArgoCD shows application as "OutOfSync"
-
-**Debugging:**
-```bash
-# Check sync status
-argocd app get confluent-platform-dev
-
-# Check diff
-argocd app diff confluent-platform-dev
-
-# Manual sync
-argocd app sync confluent-platform-dev
-```
-
-### Git Repository Access Denied
-
-**Symptom:** ArgoCD can't access repository
-
-**Solution:**
-```bash
-# Verify repository secret
-oc get secret repo-confluent-gitops -n openshift-gitops
-
-# Check SSH key
-oc get secret repo-confluent-gitops -n openshift-gitops \
-  -o jsonpath='{.data.sshPrivateKey}' | base64 -d
-
-# Test Git access
-ssh -T git@github.com
-```
-
-## Monitoring Issues
-
-### ServiceMonitor Not Scraping
-
-**Symptom:** No metrics in Prometheus
-
-**Debugging:**
-```bash
-# Check if user workload monitoring is enabled
-oc get configmap cluster-monitoring-config -n openshift-monitoring
-
-# Check ServiceMonitor
-oc describe servicemonitor kafka -n confluent
-
-# Verify target endpoints
-oc get endpoints -n confluent | grep prometheus
-```
-
-## Performance Issues
-
-### High Latency
-
-**Debugging:**
-```bash
-# Check pod resource usage
-oc top pods -n confluent
+# Check pod events
+oc describe pod <pod-name> -n confluent | grep -A5 Events
 
 # Check node resources
 oc top nodes
 
-# Check Kafka metrics
-oc exec kafka-0 -n confluent -- \
-  kafka-run-class kafka.tools.JmxTool \
-  --jmx-url service:jmx:rmi:///jndi/rmi://localhost:7203/jmxrmi \
-  --object-name kafka.server:type=BrokerTopicMetrics,name=MessagesInPerSec
+# Check if nodes have capacity
+oc describe nodes | grep -A5 "Allocated resources"
 ```
+
+**Solution:**
+1. Scale down other workloads
+2. Add more worker nodes
+3. Reduce resource requests in manifests
 
 ### Storage Issues
 
+**Symptom:** PVCs not binding or pods failing with volume errors
+
 **Debugging:**
 ```bash
-# Check PVC utilization
-oc exec kafka-0 -n confluent -- df -h /var/lib/kafka/data
+# Check PVC status
+oc get pvc -n confluent
 
 # Check storage class
-oc get storageclass gp3-csi -o yaml
+oc get storageclass
 
-# Check PV status
-oc get pv | grep confluent
+# Check PV availability
+oc get pv
 ```
 
 ## Useful Commands
@@ -331,19 +244,26 @@ oc get pods -n confluent -w
 # Get all events (sorted by time)
 oc get events -n confluent --sort-by='.lastTimestamp'
 
-# Force delete stuck pods
+# Check operator logs
+oc logs -n confluent-operator -l app=confluent-operator
+
+# Force delete stuck pod
 oc delete pod <pod-name> -n confluent --grace-period=0 --force
 
 # Restart all pods of a component
 oc rollout restart statefulset/kafka -n confluent
+
+# Get component status
+oc get kafka kafka -n confluent -o jsonpath='{.status.phase}'
 ```
 
 ## Getting Help
 
 1. Check CFK documentation: https://docs.confluent.io/operator/current/
 2. OpenShift documentation: https://docs.openshift.com/
-3. Create GitHub issue with:
-   - Environment details
+3. ROSA documentation: https://docs.openshift.com/rosa/
+4. Create GitHub issue with:
+   - Workflow logs
    - Error messages
-   - Relevant logs
-   - Steps to reproduce
+   - `oc get pods -n confluent` output
+   - `oc get events -n confluent` output

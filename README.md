@@ -1,16 +1,15 @@
 # OpenShift CFK GitOps
 
-GitOps-based deployment of Confluent Platform on Red Hat OpenShift (ROSA) using Terraform and ArgoCD.
+Deploy Confluent Platform on Red Hat OpenShift (ROSA) using GitHub Actions workflows.
 
 ## Overview
 
-This project deploys a production-ready Confluent Platform 8.0.1 on a ROSA (Red Hat OpenShift Service on AWS) cluster using:
+This project deploys Confluent Platform 7.7.1 on a ROSA (Red Hat OpenShift Service on AWS) cluster using:
 
-- **Infrastructure as Code:** Terraform for AWS and ROSA resources
-- **GitOps:** OpenShift GitOps (ArgoCD) for application deployment
-- **Secrets Management:** External Secrets Operator with AWS Secrets Manager
-- **TLS:** cert-manager with Let's Encrypt
-- **Monitoring:** OpenShift built-in Prometheus
+- **ROSA CLI:** Automated cluster provisioning via GitHub Actions
+- **CFK Operator:** Confluent for Kubernetes 2.10.0
+- **KRaft Mode:** No ZooKeeper dependency
+- **Docker Hub:** Direct image pulls (no ECR mirroring required)
 
 ## Architecture
 
@@ -18,33 +17,33 @@ This project deploys a production-ready Confluent Platform 8.0.1 on a ROSA (Red 
 ┌─────────────────────────────────────────────────────────────────┐
 │                         AWS Account                              │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │                        VPC                                │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐      │   │
-│  │  │   AZ-1      │  │   AZ-2      │  │   AZ-3      │      │   │
-│  │  │  ┌───────┐  │  │  ┌───────┐  │  │  ┌───────┐  │      │   │
-│  │  │  │ Node  │  │  │  │ Node  │  │  │  │ Node  │  │      │   │
-│  │  │  │ Kafka │  │  │  │ Kafka │  │  │  │ Kafka │  │      │   │
-│  │  │  │ KRaft │  │  │  │ KRaft │  │  │  │ KRaft │  │      │   │
-│  │  │  └───────┘  │  │  └───────┘  │  │  └───────┘  │      │   │
-│  │  └─────────────┘  └─────────────┘  └─────────────┘      │   │
+│  │                    ROSA Cluster                          │   │
+│  │  ┌─────────────────────────────────────────────────┐    │   │
+│  │  │              confluent namespace                 │    │   │
+│  │  │  ┌───────────┐ ┌───────────┐ ┌───────────┐     │    │   │
+│  │  │  │  KRaft    │ │   Kafka   │ │  Schema   │     │    │   │
+│  │  │  │Controller │ │  Brokers  │ │ Registry  │     │    │   │
+│  │  │  └───────────┘ └───────────┘ └───────────┘     │    │   │
+│  │  │  ┌───────────┐ ┌───────────┐ ┌───────────┐     │    │   │
+│  │  │  │  Connect  │ │  ksqlDB   │ │  Control  │     │    │   │
+│  │  │  │           │ │           │ │  Center   │     │    │   │
+│  │  │  └───────────┘ └───────────┘ └───────────┘     │    │   │
+│  │  └─────────────────────────────────────────────────┘    │   │
 │  └─────────────────────────────────────────────────────────┘   │
-│                                                                  │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
-│  │   ECR    │  │ Route53  │  │ Secrets  │  │   IAM    │       │
-│  │          │  │          │  │ Manager  │  │  (IRSA)  │       │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘       │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Components
 
-| Component | Version | Description |
-|-----------|---------|-------------|
-| OpenShift | 4.14.x | Container platform |
-| Confluent Platform | 8.0.1 | Event streaming platform |
-| CFK Operator | 2.10.0 | Kubernetes operator |
-| cert-manager | 1.14.2 | Certificate management |
-| External Secrets | Latest | Secrets synchronization |
+| Component | Version | Replicas |
+|-----------|---------|----------|
+| KRaft Controller | 7.7.1 | 3 |
+| Kafka | 7.7.1 | 3 |
+| Schema Registry | 7.7.1 | 1 |
+| Connect | 7.7.1 | 1 |
+| ksqlDB | 7.7.1 | 1 |
+| Control Center | 7.7.1 | 1 |
+| REST Proxy | 7.7.1 | 1 |
 
 ## Quick Start
 
@@ -52,17 +51,7 @@ This project deploys a production-ready Confluent Platform 8.0.1 on a ROSA (Red 
 
 1. AWS account with appropriate permissions
 2. Red Hat account with ROSA enabled
-3. Domain name for TLS certificates
-4. GitHub repository with Actions enabled
-
-See [docs/PREREQUISITES.md](docs/PREREQUISITES.md) for detailed requirements.
-
-### Configuration
-
-1. Fork this repository
-2. Update `infrastructure/terraform/environments/*.tfvars` with your values
-3. Configure GitHub secrets (see below)
-4. Run deployment workflows in order
+3. GitHub repository with Actions enabled
 
 ### GitHub Secrets Required
 
@@ -70,97 +59,67 @@ See [docs/PREREQUISITES.md](docs/PREREQUISITES.md) for detailed requirements.
 |--------|-------------|
 | `AWS_ACCESS_KEY_ID` | AWS access key |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key |
-| `RHCS_TOKEN` | Red Hat Cloud Services token |
-| `ARGOCD_SSH_PRIVATE_KEY` | SSH key for Git access |
-| `ACME_EMAIL` | Email for Let's Encrypt |
+| `RHCS_TOKEN` | Red Hat Cloud Services token ([Get token](https://cloud.redhat.com/openshift/token/rosa)) |
+| `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password (created by workflow 01) |
 
 ### Deployment
 
 Run workflows in order via GitHub Actions:
 
-1. `01-deploy-infrastructure.yaml` - Create ROSA cluster (~45 min)
-2. `02-configure-cluster.yaml` - Configure OpenShift
-3. `03-mirror-images.yaml` - Mirror images to ECR
-4. `04-deploy-external-secrets.yaml` - Deploy ESO
-5. `05-deploy-argocd.yaml` - Configure ArgoCD
-6. `06-deploy-cfk-operator.yaml` - Install CFK
-7. `07-deploy-cert-manager.yaml` - Setup TLS
-8. `08-deploy-confluent-platform.yaml` - Deploy Confluent
-9. `09-deploy-routes.yaml` - Create Routes
-10. `10-deploy-monitoring.yaml` - Enable monitoring
+1. **01-provision-rosa** - Create ROSA cluster (~40 min)
+2. **02-configure-cluster** - Configure namespaces and SCCs (~2 min)
+3. **03-deploy-cfk-operator** - Install CFK Operator (~5 min)
+4. **04-deploy-confluent-platform** - Deploy all components (~15 min)
 
-See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for detailed instructions.
+**When done testing:**
+- **99-deprovision-rosa** - Destroy cluster (stops charges!)
+
+See [.github/workflows/README.md](.github/workflows/README.md) for detailed workflow documentation.
 
 ## Project Structure
 
 ```
 openshift-cfk-gitops/
-├── .github/workflows/      # GitHub Actions workflows
-├── infrastructure/
-│   └── terraform/          # Terraform configurations
-│       └── environments/   # Environment-specific variables
-├── argocd/                 # ArgoCD applications
-│   └── dev/               # Dev environment apps
+├── .github/workflows/          # GitHub Actions workflows
+│   ├── 01-provision-rosa.yaml
+│   ├── 02-configure-cluster.yaml
+│   ├── 03-deploy-cfk-operator.yaml
+│   ├── 04-deploy-confluent-platform.yaml
+│   ├── 99-deprovision-rosa.yaml
+│   └── README.md
 ├── environments/
-│   ├── dev/               # Dev manifests
-│   │   ├── platform/      # Confluent Platform CRs
-│   │   ├── routes/        # OpenShift Routes
-│   │   ├── external-secrets/
-│   │   ├── cert-manager/
-│   │   ├── cluster-config/
-│   │   └── monitoring/
-│   ├── staging/
-│   └── prod/
-├── scripts/               # Utility scripts
-└── docs/                  # Documentation
+│   └── dev/
+│       ├── cluster-config/     # Namespace and SCC definitions
+│       └── platform-dockerhub/ # Confluent Platform manifests
+└── docs/                       # Documentation
 ```
 
-## Estimated Costs
+## Cost Estimates
 
-| Environment | Monthly Cost |
-|-------------|-------------|
-| Development | ~$300-500 |
-| Staging | ~$500-700 |
-| Production | ~$800-1200 |
+| Configuration | Hourly | Daily |
+|--------------|--------|-------|
+| Minimal (2x m5.xlarge, single AZ) | ~$0.65 | ~$15 |
+| Dev (3x m5.xlarge, multi AZ) | ~$0.85 | ~$20 |
 
-See [docs/COST-OPTIMIZATION.md](docs/COST-OPTIMIZATION.md) for cost reduction strategies.
+**Important:** Run the deprovision workflow when done testing to stop AWS charges!
 
 ## Accessing the Platform
 
-After deployment:
+After deployment, access URLs are provided in the workflow summary:
 
-```bash
-# Get ArgoCD credentials
-./scripts/get-argocd-password.sh
-
-# Validate deployment
-./scripts/validate-cluster.sh
-
-# Get Control Center URL
-oc get route controlcenter -n confluent -o jsonpath='{.spec.host}'
-```
+- **Control Center:** `https://controlcenter.<apps-domain>`
+- **Schema Registry:** `https://schemaregistry.<apps-domain>`
+- **Connect:** `https://connect.<apps-domain>`
+- **ksqlDB:** `https://ksqldb.<apps-domain>`
+- **REST Proxy:** `https://kafkarestproxy.<apps-domain>`
 
 ## Documentation
 
+- [Workflow Documentation](.github/workflows/README.md)
 - [Prerequisites](docs/PREREQUISITES.md)
 - [Deployment Guide](docs/DEPLOYMENT.md)
 - [Cost Optimization](docs/COST-OPTIMIZATION.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
-
-## Cleanup
-
-To destroy all resources, run workflows in reverse order:
-
-1. `91-destroy-confluent-platform.yaml`
-2. ... (intermediate destroy workflows)
-3. `99-destroy-infrastructure.yaml`
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make changes
-4. Submit a pull request
 
 ## License
 

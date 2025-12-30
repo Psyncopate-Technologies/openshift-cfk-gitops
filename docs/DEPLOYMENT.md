@@ -1,256 +1,171 @@
 # Deployment Guide
 
-This guide walks through deploying Confluent Platform on OpenShift using the GitOps approach.
+This guide walks through deploying Confluent Platform on OpenShift using GitHub Actions workflows.
 
 ## Overview
 
-The deployment process consists of 10 sequential steps, each managed by a GitHub Actions workflow.
+The deployment consists of 4 sequential workflows, plus a cleanup workflow.
 
 ## Deployment Steps
 
-### Step 1: Deploy Infrastructure
+### Step 1: Provision ROSA Cluster
 
-**Workflow:** `01-deploy-infrastructure.yaml`
+**Workflow:** `01-provision-rosa.yaml`
 
-This creates all AWS infrastructure using Terraform:
-- VPC with public/private subnets
-- ROSA (Red Hat OpenShift on AWS) cluster
-- ECR repositories for container images
-- Route53 hosted zone
-- AWS Secrets Manager secrets
-- IAM roles for IRSA
+Creates a new ROSA cluster using the ROSA CLI.
 
-```bash
-# Run via GitHub Actions
-# Navigate to Actions > 01-Deploy Infrastructure
-# Select environment: dev
-# Select action: plan (review first)
-# Then run again with action: apply
-```
+**Inputs:**
+- `cluster_name`: Name for the cluster (default: `cfk-test`)
+- `environment`: Configuration profile (minimal, dev, staging, prod)
+- `compute_nodes`: Number of worker nodes (default: 2)
+- `instance_type`: EC2 instance type (default: m5.xlarge)
+- `multi_az`: Multi-AZ deployment (default: false)
 
-**Duration:** ~45-60 minutes
+**Duration:** ~35-45 minutes
 
 **Post-deployment:**
-1. Get the cluster admin password from Terraform outputs
-2. Add it as `OPENSHIFT_ADMIN_PASSWORD` secret in GitHub
+1. Check the workflow logs for the `rosa create admin` output
+2. Copy the admin password
+3. Add it as `OPENSHIFT_ADMIN_PASSWORD` secret in GitHub
 
 ### Step 2: Configure Cluster
 
 **Workflow:** `02-configure-cluster.yaml`
 
-Applies OpenShift-specific configuration:
-- Creates namespaces (confluent, confluent-operator)
-- Applies Security Context Constraints
-- Configures ECR pull secrets
+Configures the cluster for Confluent Platform:
+- Creates `confluent` namespace
+- Creates `confluent-operator` namespace
+- Applies `confluent-scc` SecurityContextConstraints
+- Grants SCCs to service accounts
 
-**Duration:** ~5 minutes
+**Inputs:**
+- `cluster_name`: ROSA cluster name
+- `environment`: Environment to configure
 
-### Step 3: Mirror Images
+**Duration:** ~2 minutes
 
-**Workflow:** `03-mirror-images.yaml`
+### Step 3: Deploy CFK Operator
 
-Mirrors Confluent images from Docker Hub to ECR:
-- cp-server (Kafka)
-- cp-schema-registry
-- cp-kafka-connect
-- cp-ksqldb-server
-- cp-control-center
-- cp-kafka-rest
-- confluent-init-container
-- confluent-operator
+**Workflow:** `03-deploy-cfk-operator.yaml`
 
-**Duration:** ~15-20 minutes
-
-### Step 4: Deploy External Secrets
-
-**Workflow:** `04-deploy-external-secrets.yaml`
-
-Installs External Secrets Operator and configures AWS Secrets Manager integration:
-- Deploys ESO via Helm
-- Creates IRSA-enabled ServiceAccount
-- Configures SecretStore for AWS Secrets Manager
-- Creates ExternalSecrets for Confluent credentials
-
-**Duration:** ~5 minutes
-
-### Step 5: Deploy ArgoCD
-
-**Workflow:** `05-deploy-argocd.yaml`
-
-Configures OpenShift GitOps (ArgoCD):
-- Installs OpenShift GitOps Operator
-- Configures ArgoCD instance
-- Creates AppProject for Confluent
-- Sets up Git repository credentials
-
-**Duration:** ~10 minutes
-
-**Post-deployment:**
-- Access ArgoCD UI: Run `./scripts/get-argocd-password.sh`
-
-### Step 6: Deploy CFK Operator
-
-**Workflow:** `06-deploy-cfk-operator.yaml`
-
-Installs Confluent for Kubernetes Operator:
-- Deploys CFK via Helm
+Installs Confluent for Kubernetes Operator via Helm:
+- Deploys CFK from Confluent Helm repository
 - Configures for OpenShift security model
 - Grants SCC to operator ServiceAccount
 
+**Inputs:**
+- `cluster_name`: ROSA cluster name
+- `cfk_version`: Helm chart version (default: 0.921.20)
+
 **Duration:** ~5 minutes
 
-### Step 7: Deploy cert-manager
+### Step 4: Deploy Confluent Platform
 
-**Workflow:** `07-deploy-cert-manager.yaml`
-
-Installs cert-manager with Let's Encrypt:
-- Deploys cert-manager via Helm
-- Creates ClusterIssuer for Let's Encrypt
-- Requests wildcard certificate
-
-**Duration:** ~10 minutes
-
-**Note:** Start with `staging` ACME server to avoid rate limits, then switch to `production` when ready.
-
-### Step 8: Deploy Confluent Platform
-
-**Workflow:** `08-deploy-confluent-platform.yaml`
+**Workflow:** `04-deploy-confluent-platform.yaml`
 
 Deploys all Confluent Platform components:
 - KRaft Controller (3 replicas)
 - Kafka (3 replicas)
-- Schema Registry (2 replicas)
-- Connect (2 replicas)
-- ksqlDB (2 replicas)
+- Schema Registry (1 replica)
+- Connect (1 replica)
+- ksqlDB (1 replica)
 - Control Center (1 replica)
-- REST Proxy (2 replicas)
+- REST Proxy (1 replica)
 
-**Duration:** ~20-30 minutes
+**Inputs:**
+- `cluster_name`: ROSA cluster name
+
+**Duration:** ~15-20 minutes
 
 **Deployment order:**
-1. KRaft Controller
-2. Kafka (depends on KRaft)
-3. Schema Registry (depends on Kafka)
-4. Connect, ksqlDB, REST Proxy (depend on Kafka + SR)
-5. Control Center (depends on all)
+1. KRaft Controller starts first
+2. Kafka brokers connect to KRaft
+3. Schema Registry, Connect, ksqlDB, REST Proxy start
+4. Control Center starts last (depends on all components)
 
-### Step 9: Deploy Routes
+## Cleanup
 
-**Workflow:** `09-deploy-routes.yaml`
+### Deprovision ROSA Cluster
 
-Creates OpenShift Routes for external access:
-- Control Center
-- Schema Registry
-- Connect
-- ksqlDB
-- REST Proxy
+**Workflow:** `99-deprovision-rosa.yaml`
 
-**Duration:** ~2 minutes
+Destroys the ROSA cluster and cleans up AWS resources:
+- Deletes the ROSA cluster
+- Removes operator roles
+- Deletes OIDC provider
+- Cleans up orphaned CloudFormation stacks
 
-### Step 10: Deploy Monitoring
+**Inputs:**
+- `cluster_name`: Cluster to delete
+- `confirm_cluster_name`: Type cluster name again to confirm (safety check)
 
-**Workflow:** `10-deploy-monitoring.yaml`
+**Duration:** ~15-20 minutes
 
-Configures monitoring and alerting:
-- Enables user workload monitoring
-- Creates ServiceMonitors for all components
-- Creates PrometheusRules for alerts
-
-**Duration:** ~5 minutes
+**Important:** Run this workflow when done testing to stop AWS charges!
 
 ## Verification
 
-After deployment, verify the cluster:
+After deployment, verify the cluster status in the workflow summary or manually:
 
 ```bash
 # Login to OpenShift
 oc login <cluster-api-url> -u cluster-admin -p <password>
 
-# Run validation script
-./scripts/validate-cluster.sh
-
 # Check all components are running
 oc get kraftcontroller,kafka,schemaregistry,connect,ksqldb,controlcenter,kafkarestproxy -n confluent
+
+# Check pods
+oc get pods -n confluent
+
+# Check routes
+oc get routes -n confluent
 ```
 
 ## Accessing the Platform
 
-### Control Center
-```bash
-# Get the route
-oc get route controlcenter -n confluent -o jsonpath='{.spec.host}'
-# Access: https://<route-host>
-```
+Access URLs are provided in the workflow summary after deployment:
 
-### ArgoCD
-```bash
-./scripts/get-argocd-password.sh
-```
+| Component | URL Pattern |
+|-----------|-------------|
+| Control Center | `https://controlcenter.<apps-domain>` |
+| Schema Registry | `https://schemaregistry.<apps-domain>` |
+| Connect | `https://connect.<apps-domain>` |
+| ksqlDB | `https://ksqldb.<apps-domain>` |
+| REST Proxy | `https://kafkarestproxy.<apps-domain>` |
 
-### OpenShift Console
-```bash
-# From Terraform outputs
-terraform output cluster_console_url
-```
-
-## Updating the Deployment
-
-### Via ArgoCD (Recommended)
-1. Make changes to manifests in Git
-2. Push to main branch
-3. ArgoCD will automatically sync
-
-### Manual Sync
-```bash
-argocd app sync confluent-platform-dev
-```
-
-## Rolling Back
-
-### Via ArgoCD
-1. Navigate to application in ArgoCD UI
-2. Click "History and Rollback"
-3. Select previous revision
-4. Click "Rollback"
-
-### Via kubectl
-```bash
-# Get revision history
-oc rollout history deployment/kafka -n confluent
-
-# Rollback to previous
-oc rollout undo deployment/kafka -n confluent
-```
+The `<apps-domain>` is shown in the workflow output (e.g., `apps.cfk-test.abcd.p1.openshiftapps.com`).
 
 ## Scaling
 
 ### Horizontal Scaling
-Edit the `replicas` field in the component manifests:
+Edit the component manifests in `environments/dev/platform-dockerhub/`:
 
 ```yaml
 spec:
   replicas: 5  # Increase Kafka brokers
 ```
 
+Then re-run workflow 04 to apply changes.
+
 ### Vertical Scaling
-Edit resource requests/limits:
+Edit resource requests/limits in the component manifests:
 
 ```yaml
 spec:
   podTemplate:
     resources:
       requests:
-        cpu: "4"
-        memory: 16Gi
+        cpu: "2"
+        memory: 8Gi
       limits:
-        cpu: "8"
-        memory: 24Gi
+        cpu: "4"
+        memory: 12Gi
 ```
 
 ## Next Steps
 
-1. Configure authentication (SASL, RBAC)
-2. Set up schema governance policies
-3. Create topics and connectors
-4. Configure backup and disaster recovery
-5. Set up monitoring dashboards
+After deployment:
+1. Access Control Center to verify all components
+2. Create topics for your applications
+3. Configure connectors if needed
+4. Set up monitoring dashboards

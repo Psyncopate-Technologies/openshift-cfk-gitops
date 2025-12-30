@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: confluent-operator
-  labels:
-    app.kubernetes.io/managed-by: argocd
-    openshift.io/cluster-monitoring: "true"

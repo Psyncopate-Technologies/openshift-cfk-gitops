@@ -4,202 +4,152 @@ This guide provides strategies for optimizing costs when running Confluent Platf
 
 ## Base Cost Breakdown
 
-### Standard 3-Node Cluster (On-Demand)
+### Minimal Configuration (Single AZ)
 
-| Resource | Monthly Cost |
-|----------|-------------|
-| ROSA cluster fee | ~$125 |
-| 3x m5.2xlarge (8 vCPU, 32GB) | ~$350 |
-| NAT Gateway | ~$35 |
-| ECR storage | ~$5 |
-| Route53 | ~$1 |
-| Secrets Manager | ~$5 |
-| **Total** | **~$520/month** |
+| Resource | Hourly | Daily |
+|----------|--------|-------|
+| ROSA cluster fee | ~$0.171 | ~$4.10 |
+| 2x m5.xlarge (4 vCPU, 16GB each) | ~$0.48 | ~$11.50 |
+| EBS volumes (~100GB) | ~$0.01 | ~$0.30 |
+| **Total** | **~$0.65** | **~$15-16** |
+
+### Development Configuration (Multi-AZ)
+
+| Resource | Hourly | Daily |
+|----------|--------|-------|
+| ROSA cluster fee | ~$0.171 | ~$4.10 |
+| 3x m5.xlarge | ~$0.72 | ~$17.30 |
+| NAT Gateways (multi-AZ) | ~$0.05 | ~$1.20 |
+| EBS volumes | ~$0.02 | ~$0.50 |
+| **Total** | **~$0.85** | **~$20-23** |
 
 ## Cost Reduction Strategies
 
-### 1. Use Spot Instances (~40% savings)
+### 1. Use Minimal Configuration
 
-Enable spot instances in Terraform:
+For testing and development, use the minimal configuration:
+- 2 worker nodes (single AZ)
+- m5.xlarge instance type
+- No multi-AZ (saves NAT Gateway costs)
 
-```hcl
-# environments/dev.tfvars
-use_spot_instances = true
+```
+Workflow inputs:
+- compute_nodes: 2
+- instance_type: m5.xlarge
+- multi_az: false
 ```
 
-**Savings:** ~$140/month on compute
+### 2. Destroy When Not In Use
 
-**Considerations:**
-- Only for dev/staging environments
-- Spot instances may be interrupted
-- Configure pod disruption budgets
+**Most important cost saver!**
 
-### 2. Right-Size Instances
+Run `99-deprovision-rosa` workflow when done testing. A cluster running 24/7 costs ~$450-600/month. Running only during business hours (8 hours/day, weekdays) reduces cost to ~$100-150/month.
 
-#### Development Environment
-Use smaller instances for dev:
+### 3. Right-Size Confluent Components
 
-```hcl
-# environments/dev.tfvars
-compute_machine_type = "m5.xlarge"  # 4 vCPU, 16GB
-compute_replicas     = 2            # Reduce to 2 nodes
-```
-
-**Savings:** ~$200/month
-
-#### Confluent Component Sizing
-Reduce resource requests for dev:
+For development/testing, reduce replicas in `environments/dev/platform-dockerhub/`:
 
 ```yaml
-# environments/dev/platform/kafka.yaml
+# Reduce Kafka brokers
+spec:
+  replicas: 1  # Instead of 3
+
+# Reduce KRaft controllers
+spec:
+  replicas: 1  # Instead of 3
+```
+
+**Note:** Single replica configurations are not suitable for production.
+
+### 4. Reduce Resource Requests
+
+Lower resource requests for dev environments:
+
+```yaml
 spec:
   podTemplate:
     resources:
       requests:
+        cpu: "500m"
+        memory: 2Gi
+      limits:
         cpu: "1"
         memory: 4Gi
-      limits:
-        cpu: "2"
-        memory: 6Gi
 ```
 
-### 3. Single NAT Gateway
+### 5. Use Smaller Instance Types
 
-For dev environments, use a single NAT Gateway:
+For minimal testing with reduced components:
 
-```hcl
-# variables.tf
-multi_az = false  # Single NAT Gateway
+```
+instance_type: m5.large  # 2 vCPU, 8GB (~$0.096/hour)
 ```
 
-**Savings:** ~$70/month (if using 3 NAT gateways)
+**Note:** May not be sufficient for full Confluent Platform deployment.
 
-### 4. Reserved Instances
+## Example Testing Sessions
 
-For production workloads, consider:
-- 1-year reserved: ~30% savings
-- 3-year reserved: ~60% savings
+### Quick Test (~$3-4)
+```
+Morning:  Run 01-provision-rosa
+          Run 02, 03, 04 workflows
+          Test for 4 hours
+Evening:  Run 99-deprovision-rosa
 
-Calculate break-even:
-- 1-year RI pays off after ~5 months
-- 3-year RI pays off after ~14 months
-
-### 5. Scheduled Scaling
-
-For non-production environments, scale down during off-hours:
-
-```bash
-# Scale down script (run via cron or scheduled workflow)
-#!/bin/bash
-# Scale Confluent components to 0
-oc scale kafka kafka -n confluent --replicas=0
-oc scale kraftcontroller kraftcontroller -n confluent --replicas=0
-oc scale schemaregistry schemaregistry -n confluent --replicas=0
-# ... etc
+Cost: ~4 hours × $0.65/hour = ~$2.60 + provisioning time
 ```
 
-**Savings:** Up to 66% if running 8 hours/day
+### Full Day Development (~$8-10)
+```
+9 AM:     Run 01-provision-rosa (~40 min)
+10 AM:    Run 02, 03, 04 workflows
+          Develop and test all day
+6 PM:     Run 99-deprovision-rosa
 
-### 6. Delete Unused Environments
+Cost: ~8 hours × $0.65/hour + provisioning = ~$8
+```
 
-Implement automatic cleanup:
+### Weekly Sprint (~$40-50)
+```
+Monday:   Provision cluster in morning
+Mon-Fri:  Use during business hours (destroy each evening)
+Friday:   Final deprovision
 
-```yaml
-# .github/workflows/scheduled-cleanup.yaml
-name: Scheduled Cleanup
-on:
-  schedule:
-    - cron: '0 0 * * 0'  # Weekly on Sunday
-jobs:
-  check-and-cleanup:
-    # Check for stale dev environments
-    # Delete if no activity in 7 days
+Cost: 5 days × ~$8/day = ~$40
 ```
 
 ## Cost Monitoring
 
-### Enable AWS Cost Explorer
+### AWS Cost Explorer
 
 1. Navigate to AWS Cost Explorer
-2. Create cost allocation tags:
-   - `Project: openshift-cfk-gitops`
-   - `Environment: dev/staging/prod`
+2. Filter by service: EC2, ROSA
+3. Group by tag or resource
 
-### Set Up Budget Alerts
+### Budget Alerts
 
-```hcl
-# Add to Terraform
-resource "aws_budgets_budget" "monthly" {
-  name         = "openshift-cfk-${var.environment}"
-  budget_type  = "COST"
-  limit_amount = "600"
-  limit_unit   = "USD"
-  time_unit    = "MONTHLY"
+Set up AWS Budgets to alert on spending:
 
-  notification {
-    comparison_operator = "GREATER_THAN"
-    threshold           = 80
-    threshold_type      = "PERCENTAGE"
-    notification_type   = "FORECASTED"
-    subscriber_email_addresses = ["team@example.com"]
-  }
-}
-```
+1. Go to AWS Budgets
+2. Create budget with daily/monthly threshold
+3. Set alert at 80% of budget
 
-## Environment-Specific Configurations
+## Comparison: ROSA vs Other Options
 
-### Development (~$200-300/month)
-```hcl
-# environments/dev.tfvars
-compute_machine_type = "m5.xlarge"
-compute_replicas     = 2
-use_spot_instances   = true
-multi_az             = false
-enable_confluent_machine_pool = false
-```
-
-### Staging (~$400-500/month)
-```hcl
-# environments/staging.tfvars
-compute_machine_type = "m5.2xlarge"
-compute_replicas     = 3
-use_spot_instances   = false
-multi_az             = true
-enable_confluent_machine_pool = false
-```
-
-### Production (~$800-1000/month)
-```hcl
-# environments/prod.tfvars
-compute_machine_type = "m5.4xlarge"
-compute_replicas     = 3
-use_spot_instances   = false
-multi_az             = true
-enable_confluent_machine_pool = true
-```
-
-## Cleanup Checklist
-
-When destroying an environment, ensure all resources are cleaned:
-
-1. [ ] Confluent Platform components
-2. [ ] PersistentVolumeClaims (EBS volumes)
-3. [ ] Load Balancers (from Routes/Services)
-4. [ ] ECR images (if not shared)
-5. [ ] Secrets Manager secrets
-6. [ ] Route53 records
-7. [ ] ROSA cluster
-8. [ ] VPC and networking
-9. [ ] Terraform state files
+| Option | Monthly Cost | Notes |
+|--------|-------------|-------|
+| ROSA (minimal, 8hr/day) | ~$100-150 | Best for intermittent use |
+| ROSA (24/7 minimal) | ~$450-500 | Simple management |
+| Self-managed OpenShift | ~$300-400 | More operational overhead |
+| EKS + CFK | ~$250-350 | No OpenShift features |
 
 ## Summary
 
-| Strategy | Dev Savings | Prod Applicability |
-|----------|-------------|-------------------|
-| Spot instances | ~$140/month | No |
-| Smaller instances | ~$200/month | Limited |
-| Single NAT | ~$70/month | No |
-| Reserved instances | - | ~$200/month |
-| Scheduled scaling | ~$300/month | No |
+| Strategy | Savings |
+|----------|---------|
+| Destroy when not in use | Up to 70% |
+| Single AZ (dev only) | ~$30-50/month |
+| Smaller instances | ~20-30% |
+| Reduced replicas | Minimal (compute bound) |
 
-**Total potential dev savings: ~$300-400/month (60-70%)**
+**Key takeaway:** The single most effective cost optimization is destroying the cluster when not actively testing. A cluster left running over a weekend costs ~$30-40 unnecessarily.
