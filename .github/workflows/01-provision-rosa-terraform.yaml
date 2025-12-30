@@ -95,11 +95,6 @@ jobs:
         env:
           TF_VAR_rhcs_token: ${{ secrets.RHCS_TOKEN }}
 
-      - name: Terraform Format Check
-        id: fmt
-        run: terraform fmt -check
-        continue-on-error: true
-
       - name: Terraform Validate
         id: validate
         run: terraform validate
