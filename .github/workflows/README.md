@@ -53,8 +53,8 @@ Configure these secrets in your GitHub repository (Settings > Secrets > Actions)
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key | AWS IAM Console |
 | `RHCS_TOKEN` | Red Hat Cloud Services token | [Get Token](https://cloud.redhat.com/openshift/token/rosa) |
 | `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password | Created by workflow 01 |
-| `DOCKERHUB_USERNAME` | Docker Hub username | For pulling images |
-| `DOCKERHUB_TOKEN` | Docker Hub access token | Docker Hub settings |
+| `DOCKER_HUB_USERNAME` | Docker Hub username | For pulling images |
+| `DOCKER_HUB_TOKEN` | Docker Hub access token | Docker Hub settings |
 | `ARGOCD_SSH_PRIVATE_KEY` | SSH private key for ArgoCD | See setup below |
 
 ### Setting Up SSH Deploy Key for ArgoCD
@@ -229,7 +229,7 @@ Total: ~$15-20 for a day of testing
 ### Image pull errors (ErrImagePull)
 - Verify Docker Hub secret exists: `oc get secret dockerhub-secret -n confluent`
 - Check secret is correctly configured: `oc get secret dockerhub-secret -n confluent -o yaml`
-- Ensure `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` GitHub secrets are set
+- Ensure `DOCKER_HUB_USERNAME` and `DOCKER_HUB_TOKEN` GitHub secrets are set
 - Re-run workflow 02-configure-cluster to recreate the secret
 
 ### TLS certificate errors

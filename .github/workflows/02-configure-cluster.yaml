@@ -121,16 +121,16 @@ jobs:
           # Create dockerhub pull secret in confluent namespace
           oc create secret docker-registry dockerhub-secret \
             --docker-server=https://index.docker.io/v1/ \
-            --docker-username="${{ secrets.DOCKERHUB_USERNAME }}" \
-            --docker-password="${{ secrets.DOCKERHUB_TOKEN }}" \
+            --docker-username="${{ secrets.DOCKER_HUB_USERNAME }}" \
+            --docker-password="${{ secrets.DOCKER_HUB_TOKEN }}" \
             --namespace=confluent \
             --dry-run=client -o yaml | oc apply -f -
 
           # Create dockerhub pull secret in confluent-operator namespace
           oc create secret docker-registry dockerhub-secret \
             --docker-server=https://index.docker.io/v1/ \
-            --docker-username="${{ secrets.DOCKERHUB_USERNAME }}" \
-            --docker-password="${{ secrets.DOCKERHUB_TOKEN }}" \
+            --docker-username="${{ secrets.DOCKER_HUB_USERNAME }}" \
+            --docker-password="${{ secrets.DOCKER_HUB_TOKEN }}" \
             --namespace=confluent-operator \
             --dry-run=client -o yaml | oc apply -f -
 
