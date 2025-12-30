@@ -1,4 +1,4 @@
-name: 05-Install ArgoCD
+name: 03-Install ArgoCD
 
 on:
   workflow_dispatch:
@@ -200,4 +200,4 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
           echo "1. Access ArgoCD UI at the Custom Domain URL above" >> $GITHUB_STEP_SUMMARY
-          echo "2. Run **06-Deploy ArgoCD Apps** to deploy Confluent Platform via GitOps" >> $GITHUB_STEP_SUMMARY
+          echo "2. Run **04-Deploy CFK Operator** to deploy the operator via GitOps" >> $GITHUB_STEP_SUMMARY

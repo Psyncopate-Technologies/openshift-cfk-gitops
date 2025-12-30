@@ -1,4 +1,4 @@
-name: 06-Deploy CFK Operator
+name: 04-Deploy CFK Operator
 
 on:
   workflow_dispatch:
@@ -134,4 +134,4 @@ jobs:
           echo "- **Chart Version:** 0.1351.59 (CFK 3.1.1)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "Run **07-Deploy Confluent Platform** to deploy Confluent Platform components" >> $GITHUB_STEP_SUMMARY
+          echo "Run **05-Deploy Confluent Platform** to deploy Confluent Platform components" >> $GITHUB_STEP_SUMMARY

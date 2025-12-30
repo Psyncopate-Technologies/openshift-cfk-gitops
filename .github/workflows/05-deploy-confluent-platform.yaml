@@ -1,4 +1,4 @@
-name: 07-Deploy Confluent Platform
+name: 05-Deploy Confluent Platform
 
 on:
   workflow_dispatch:

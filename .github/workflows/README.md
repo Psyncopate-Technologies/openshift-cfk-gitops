@@ -1,37 +1,47 @@
 # GitHub Actions Workflows
 
-This directory contains the GitHub Actions workflows for deploying and managing Confluent Platform on ROSA.
+This directory contains the GitHub Actions workflows for deploying and managing Confluent Platform on ROSA using GitOps (ArgoCD).
 
 **Important:** All workflows are **manual dispatch only** - they will NOT auto-execute on push or pull request.
 
-## Quick Start (Minimal Cost Setup)
-
-For a cost-effective test cluster (~$15-20/day), run these workflows in order:
-
-1. **01-provision-rosa.yaml** - Create ROSA cluster (~35-45 min)
-2. **02-configure-cluster.yaml** - Configure namespaces and SCCs
-3. **03-deploy-cfk-operator.yaml** - Install CFK Operator
-4. **04-deploy-confluent-platform.yaml** - Deploy Confluent Platform
-
-**When done testing, run:**
-- **99-deprovision-rosa.yaml** - Destroy cluster (stops charges!)
-
-## Workflow Execution Order
-
-### Provision & Deploy (Sequential)
+## Workflow Overview
 
 | # | Workflow | Description | Duration |
 |---|----------|-------------|----------|
-| 01 | **provision-rosa** | Create ROSA cluster | ~40 min |
-| 02 | **configure-cluster** | Namespaces, SCCs | ~2 min |
-| 03 | **deploy-cfk-operator** | CFK Operator via Helm | ~5 min |
-| 04 | **deploy-confluent-platform** | All CP components | ~15 min |
+| 01 | [01-provision-rosa.yaml](01-provision-rosa.yaml) | Provision ROSA cluster via Terraform | ~40 min |
+| 02 | [02-configure-cluster.yaml](02-configure-cluster.yaml) | Configure namespaces, SCCs, secrets | ~2 min |
+| 03 | [03-install-argocd.yaml](03-install-argocd.yaml) | Install OpenShift GitOps (ArgoCD) | ~5 min |
+| 04 | [04-deploy-cfk-operator.yaml](04-deploy-cfk-operator.yaml) | Deploy CFK Operator via ArgoCD | ~5 min |
+| 05 | [05-deploy-confluent-platform.yaml](05-deploy-confluent-platform.yaml) | Deploy Confluent Platform via ArgoCD | ~15 min |
+| 99 | [99-deprovision-rosa.yaml](99-deprovision-rosa.yaml) | Delete ROSA cluster and cleanup | ~15 min |
 
-### Destroy (When Done)
+## Quick Start
 
-| # | Workflow | Description |
-|---|----------|-------------|
-| 99 | **deprovision-rosa** | Delete ROSA cluster and cleanup |
+Run these workflows in order:
+
+```
+01-Provision ROSA        → Create ROSA cluster (Terraform)
+02-Configure Cluster     → Setup namespaces, SCCs, secrets
+03-Install ArgoCD        → Install OpenShift GitOps operator
+04-Deploy CFK Operator   → Deploy CFK 3.1.1 via ArgoCD
+05-Deploy Confluent Platform → Deploy CP 8.1.x via ArgoCD
+```
+
+**When done testing:**
+```
+99-Deprovision ROSA      → Delete cluster (stops charges!)
+```
+
+## Cluster Options
+
+All workflows support these ROSA clusters:
+
+| Cluster | Environment | Domain |
+|---------|-------------|--------|
+| cfk-dev | Development | dev.confluent.psyncopate.io |
+| cfk-stg | Staging | stg.confluent.psyncopate.io |
+| cfk-prd | Production | prd.confluent.psyncopate.io |
+| cfk-dr | Disaster Recovery | dr.confluent.psyncopate.io |
 
 ## Required GitHub Secrets
 
@@ -43,95 +53,120 @@ Configure these secrets in your GitHub repository (Settings > Secrets > Actions)
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key | AWS IAM Console |
 | `RHCS_TOKEN` | Red Hat Cloud Services token | [Get Token](https://cloud.redhat.com/openshift/token/rosa) |
 | `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password | Created by workflow 01 |
-
-### Getting the Secrets
-
-#### AWS Credentials
-1. Go to AWS IAM Console
-2. Create a user with programmatic access
-3. Attach policies: `AdministratorAccess` (or create custom policy)
-4. Save the Access Key ID and Secret Access Key
-
-#### RHCS Token
-1. Go to https://cloud.redhat.com/openshift/token/rosa
-2. Click "Load token" or "Generate token"
-3. Copy the token value
-
-#### OpenShift Admin Password
-1. Run workflow **01-provision-rosa**
-2. Check the workflow logs for the `rosa create admin` output
-3. Copy the password and add it as `OPENSHIFT_ADMIN_PASSWORD` secret
+| `DOCKERHUB_USERNAME` | Docker Hub username | For pulling images |
+| `DOCKERHUB_TOKEN` | Docker Hub access token | Docker Hub settings |
 
 ## Workflow Details
 
 ### 01-provision-rosa.yaml
-Creates a new ROSA cluster using the ROSA CLI.
+
+Provisions a ROSA cluster using Terraform.
 
 **Inputs:**
-- `cluster_name`: Name for the cluster (default: `cfk-test`)
-- `environment`: Configuration profile (minimal, dev, staging, prod)
-- `compute_nodes`: Number of worker nodes (default: 2)
-- `instance_type`: EC2 instance type (default: m5.xlarge)
-- `multi_az`: Multi-AZ deployment (default: false)
+- `environment`: Target environment (dev, stg, prd, dr)
+- `action`: Terraform action (plan, apply, destroy)
 
-**Cost Estimates:**
-| Config | Hourly | Daily |
-|--------|--------|-------|
-| minimal (2x m5.xlarge, single AZ) | ~$0.65 | ~$15 |
-| dev (3x m5.xlarge, multi AZ) | ~$0.85 | ~$20 |
+**Features:**
+- Infrastructure as Code with Terraform
+- Environment-specific configurations in `terraform/env/`
+- OpenShift 4.20.0
 
 ### 02-configure-cluster.yaml
+
 Configures the cluster for Confluent Platform.
 
 **Creates:**
 - `confluent` namespace
-- `confluent-operator` namespace
 - `confluent-scc` SecurityContextConstraints
+- Docker Hub pull secret
 - Grants SCCs to service accounts
 
-### 03-deploy-cfk-operator.yaml
-Installs Confluent for Kubernetes operator via Helm.
+### 03-install-argocd.yaml
 
-**Inputs:**
-- `cluster_name`: ROSA cluster name
-- `cfk_version`: Helm chart version (default: 0.921.20)
+Installs OpenShift GitOps (ArgoCD) operator.
 
-### 04-deploy-confluent-platform.yaml
-Deploys all Confluent Platform components.
+**Features:**
+- Installs via OpenShift GitOps Operator (Red Hat supported)
+- Creates custom domain route for ArgoCD
+- Auto-configures ArgoCD instance
 
-**Components deployed:**
+**Access:**
+- URL: `https://argocd.<custom-domain>`
+- Username: `admin`
+- Password: `oc get secret openshift-gitops-cluster -n openshift-gitops -o jsonpath='{.data.admin\.password}' | base64 -d`
+
+### 04-deploy-cfk-operator.yaml
+
+Deploys Confluent for Kubernetes (CFK) operator via ArgoCD.
+
+**Features:**
+- CFK 3.1.1 (Helm chart 0.1351.59)
+- Deployed to `confluent` namespace
+- GitOps managed with auto-sync and self-heal
+
+### 05-deploy-confluent-platform.yaml
+
+Deploys all Confluent Platform components via ArgoCD.
+
+**Components:**
 - KRaft Controller (3 replicas)
-- Kafka (3 replicas)
-- Schema Registry (1 replica)
-- Connect (1 replica)
-- ksqlDB (1 replica)
-- Control Center (1 replica)
-- REST Proxy (1 replica)
+- Kafka (3 brokers)
+- Schema Registry
+- Kafka Connect
+- ksqlDB
+- Control Center
+- REST Proxy
+
+**Access URLs (after DNS configured):**
+- Control Center: `https://controlcenter.<custom-domain>`
+- Schema Registry: `https://schemaregistry.<custom-domain>`
+- Connect: `https://connect.<custom-domain>`
+- ksqlDB: `https://ksqldb.<custom-domain>`
+- REST Proxy: `https://kafkarestproxy.<custom-domain>`
 
 ### 99-deprovision-rosa.yaml
+
 Destroys the ROSA cluster and cleans up AWS resources.
 
 **Inputs:**
 - `cluster_name`: Cluster to delete
 - `confirm_cluster_name`: Type cluster name again to confirm
 
-**⚠️ IMPORTANT:** Run this when done testing to stop AWS charges!
+**Warning:** Run this when done testing to stop AWS charges!
+
+## DNS Setup
+
+After cluster provisioning, create a wildcard CNAME record:
+
+```
+*.dev.confluent.psyncopate.io → *.apps.cfk-dev.<cluster-domain>
+```
+
+The exact target domain is shown in the workflow summary after running 01-provision-rosa.
+
+## GitOps Benefits
+
+Using ArgoCD provides:
+- **Auto-sync:** Changes pushed to git are automatically deployed
+- **Self-heal:** Drift from desired state is automatically corrected
+- **Prune:** Removed resources are automatically deleted
+- **Audit trail:** All changes tracked in git history
 
 ## Cost Management
 
 ### Minimize Costs
-1. Use `minimal` environment (2 nodes, single AZ)
+1. Use `dev` environment (smaller nodes)
 2. Destroy cluster when not in use
 3. Test during business hours only
 
 ### Example Testing Session
 ```
-Morning:  Run 01-provision-rosa (~$0.50)
-          Run 02, 03, 04 workflows
-          Test for 4 hours (~$2.60)
+Morning:  Run 01-provision-rosa (~40 min)
+          Run 02, 03, 04, 05 workflows
+          Test for 4 hours
 Evening:  Run 99-deprovision-rosa
 
-Total: ~$3-4 for a day of testing
+Total: ~$15-20 for a day of testing
 ```
 
 ## Troubleshooting
@@ -144,11 +179,15 @@ Total: ~$3-4 for a day of testing
 - Verify `OPENSHIFT_ADMIN_PASSWORD` secret is set
 - Check cluster is accessible (not still provisioning)
 
-### CFK Operator fails to install
-- Ensure cluster configuration (workflow 02) completed successfully
-- Check SCCs are applied: `oc get scc confluent-scc`
+### ArgoCD application stuck
+- Check ArgoCD UI for sync errors
+- View application events: `oc get events -n openshift-gitops`
+
+### CFK Operator not syncing
+- Verify helm chart version exists
+- Check ArgoCD application logs
 
 ### Components stuck in "Provisioning"
-- Check operator logs: `oc logs -n confluent-operator -l app=confluent-operator`
+- Check operator logs: `oc logs -n confluent -l app=confluent-operator`
 - Verify node resources: `oc describe nodes`
 - Check events: `oc get events -n confluent --sort-by='.lastTimestamp'`
