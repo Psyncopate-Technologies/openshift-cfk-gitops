@@ -61,7 +61,7 @@ module "rosa_cluster" {
   host_prefix  = var.host_prefix
 
   # Admin user
-  create_admin_user = var.create_admin_user
+  create_admin_user          = var.create_admin_user
   admin_credentials_username = var.create_admin_user ? "cluster-admin" : null
   admin_credentials_password = var.create_admin_user ? var.admin_password : null
 
