@@ -1,0 +1,242 @@
+name: 00-Provision ROSA Cluster
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_name:
+        description: 'Cluster name'
+        required: true
+        default: 'cfk-test'
+      environment:
+        description: 'Environment configuration'
+        required: true
+        type: choice
+        options:
+          - minimal
+          - dev
+          - staging
+          - prod
+        default: 'minimal'
+      compute_nodes:
+        description: 'Number of compute nodes'
+        required: true
+        default: '2'
+      instance_type:
+        description: 'EC2 instance type'
+        required: true
+        type: choice
+        options:
+          - m5.xlarge
+          - m5.2xlarge
+          - m5.4xlarge
+        default: 'm5.xlarge'
+      multi_az:
+        description: 'Multi-AZ deployment (higher cost)'
+        required: true
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  contents: read
+
+jobs:
+  provision:
+    name: Provision ROSA Cluster
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install ROSA CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz
+          tar -xzf rosa-linux.tar.gz
+          sudo mv rosa /usr/local/bin/
+          rosa version
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+          oc version --client
+
+      - name: Login to ROSA
+        run: |
+          rosa login --token="${{ secrets.RHCS_TOKEN }}"
+          rosa whoami
+
+      - name: Verify AWS Account
+        run: |
+          echo "AWS Account: $(aws sts get-caller-identity --query Account --output text)"
+          rosa verify quota --region=${{ env.AWS_REGION }}
+          rosa verify permissions
+
+      - name: Create Account Roles (if needed)
+        run: |
+          if ! rosa list account-roles 2>/dev/null | grep -q "ManagedOpenShift-Installer-Role"; then
+            echo "Creating account roles..."
+            rosa create account-roles --mode auto --yes
+          else
+            echo "Account roles already exist"
+          fi
+
+      - name: Check if Cluster Exists
+        id: check_cluster
+        run: |
+          if rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" &>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Cluster ${{ github.event.inputs.cluster_name }} already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create ROSA Cluster
+        if: steps.check_cluster.outputs.exists == 'false'
+        run: |
+          MULTI_AZ_FLAG=""
+          if [ "${{ github.event.inputs.multi_az }}" == "true" ]; then
+            MULTI_AZ_FLAG="--multi-az"
+          else
+            MULTI_AZ_FLAG="--multi-az=false"
+          fi
+
+          rosa create cluster \
+            --cluster-name="${{ github.event.inputs.cluster_name }}" \
+            --region="${{ env.AWS_REGION }}" \
+            --compute-nodes=${{ github.event.inputs.compute_nodes }} \
+            --compute-machine-type="${{ github.event.inputs.instance_type }}" \
+            --machine-cidr="10.0.0.0/16" \
+            --service-cidr="172.30.0.0/16" \
+            --pod-cidr="10.128.0.0/14" \
+            --host-prefix=23 \
+            $MULTI_AZ_FLAG \
+            --sts \
+            --mode=auto \
+            --yes
+
+      - name: Create Operator Roles
+        if: steps.check_cluster.outputs.exists == 'false'
+        run: |
+          rosa create operator-roles --cluster="${{ github.event.inputs.cluster_name }}" --mode auto --yes
+
+      - name: Create OIDC Provider
+        if: steps.check_cluster.outputs.exists == 'false'
+        run: |
+          rosa create oidc-provider --cluster="${{ github.event.inputs.cluster_name }}" --mode auto --yes
+
+      - name: Wait for Cluster Ready
+        run: |
+          echo "Waiting for cluster to be ready (this takes 30-45 minutes)..."
+
+          for i in {1..90}; do
+            STATE=$(rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" --output json | jq -r '.state // .status.state')
+            echo "Cluster state: $STATE (attempt $i/90)"
+
+            if [ "$STATE" == "ready" ]; then
+              echo "Cluster is ready!"
+              break
+            elif [ "$STATE" == "error" ] || [ "$STATE" == "uninstalling" ]; then
+              echo "ERROR: Cluster in $STATE state"
+              rosa logs install --cluster="${{ github.event.inputs.cluster_name }}" | tail -50
+              exit 1
+            fi
+
+            sleep 60
+          done
+
+      - name: Create Cluster Admin
+        id: admin
+        run: |
+          # Check if admin already exists
+          ADMIN_OUTPUT=$(rosa create admin --cluster="${{ github.event.inputs.cluster_name }}" 2>&1 || true)
+
+          if echo "$ADMIN_OUTPUT" | grep -q "already exists"; then
+            echo "Admin user already exists. Resetting password..."
+            rosa delete admin --cluster="${{ github.event.inputs.cluster_name }}" --yes || true
+            sleep 5
+            ADMIN_OUTPUT=$(rosa create admin --cluster="${{ github.event.inputs.cluster_name }}" 2>&1)
+          fi
+
+          echo "$ADMIN_OUTPUT"
+
+          # Extract login command
+          API_URL=$(rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" --output json | jq -r '.api.url')
+          CONSOLE_URL=$(rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" --output json | jq -r '.console.url')
+
+          echo "api_url=${API_URL}" >> $GITHUB_OUTPUT
+          echo "console_url=${CONSOLE_URL}" >> $GITHUB_OUTPUT
+
+      - name: Get Cluster Info
+        id: cluster_info
+        run: |
+          rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" --output json > cluster-info.json
+
+          API_URL=$(jq -r '.api.url' cluster-info.json)
+          CONSOLE_URL=$(jq -r '.console.url' cluster-info.json)
+          DOMAIN=$(jq -r '.dns.base_domain' cluster-info.json)
+          INFRA_ID=$(jq -r '.infra_id' cluster-info.json)
+
+          echo "api_url=${API_URL}" >> $GITHUB_OUTPUT
+          echo "console_url=${CONSOLE_URL}" >> $GITHUB_OUTPUT
+          echo "domain=${DOMAIN}" >> $GITHUB_OUTPUT
+          echo "infra_id=${INFRA_ID}" >> $GITHUB_OUTPUT
+
+      - name: Save Cluster Configuration
+        run: |
+          mkdir -p cluster-config
+          rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" --output json > cluster-config/cluster-info.json
+
+          # Create config for subsequent workflows
+          cat > cluster-config/config.env << EOF
+          CLUSTER_NAME=${{ github.event.inputs.cluster_name }}
+          API_URL=${{ steps.cluster_info.outputs.api_url }}
+          CONSOLE_URL=${{ steps.cluster_info.outputs.console_url }}
+          APPS_DOMAIN=apps.${{ steps.cluster_info.outputs.domain }}
+          INFRA_ID=${{ steps.cluster_info.outputs.infra_id }}
+          ENVIRONMENT=${{ github.event.inputs.environment }}
+          EOF
+
+      - name: Upload Cluster Configuration
+        uses: actions/upload-artifact@v4
+        with:
+          name: rosa-cluster-${{ github.event.inputs.cluster_name }}
+          path: cluster-config/
+          retention-days: 90
+
+      - name: Generate Summary
+        run: |
+          echo "## ROSA Cluster Provisioned Successfully" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Cluster Details" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cluster Name** | ${{ github.event.inputs.cluster_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Environment** | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Compute Nodes** | ${{ github.event.inputs.compute_nodes }} x ${{ github.event.inputs.instance_type }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Multi-AZ** | ${{ github.event.inputs.multi_az }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **API URL** | ${{ steps.cluster_info.outputs.api_url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Console URL** | ${{ steps.cluster_info.outputs.console_url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Cost Estimate" >> $GITHUB_STEP_SUMMARY
+          echo "- ROSA fee: \$0.171/hour" >> $GITHUB_STEP_SUMMARY
+          echo "- Compute: ${{ github.event.inputs.compute_nodes }} nodes" >> $GITHUB_STEP_SUMMARY
+          echo "- **Remember to run deprovision workflow when done!**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Note the admin credentials from the logs above" >> $GITHUB_STEP_SUMMARY
+          echo "2. Run **02-Configure Cluster** workflow" >> $GITHUB_STEP_SUMMARY
+          echo "3. Run **06-Deploy CFK Operator** workflow" >> $GITHUB_STEP_SUMMARY
+          echo "4. Run **08-Deploy Confluent Platform** workflow" >> $GITHUB_STEP_SUMMARY

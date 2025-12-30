@@ -1,101 +1,152 @@
 # GitHub Actions Workflows
 
-This directory contains the GitHub Actions workflows for deploying and managing the OpenShift CFK GitOps infrastructure.
+This directory contains the GitHub Actions workflows for deploying and managing Confluent Platform on ROSA.
+
+## Quick Start (Minimal Cost Setup)
+
+For a cost-effective test cluster (~$15-20/day), run these workflows in order:
+
+1. **00-provision-rosa.yaml** - Create ROSA cluster (~35-45 min)
+2. **02-configure-cluster.yaml** - Configure namespaces and SCCs
+3. **06-deploy-cfk-operator.yaml** - Install CFK Operator
+4. **08-deploy-confluent-platform.yaml** - Deploy Confluent Platform
+
+**When done testing, run:**
+- **100-deprovision-rosa.yaml** - Destroy cluster (stops charges!)
 
 ## Workflow Execution Order
 
-### Deployment (Sequential)
+### Provision & Deploy (Sequential)
 
-Execute workflows in the following order:
+| # | Workflow | Description | Duration |
+|---|----------|-------------|----------|
+| 00 | **provision-rosa** | Create ROSA cluster | ~40 min |
+| 02 | **configure-cluster** | Namespaces, SCCs | ~2 min |
+| 06 | **deploy-cfk-operator** | CFK Operator via Helm | ~5 min |
+| 08 | **deploy-confluent-platform** | All CP components | ~15 min |
 
-1. **01-deploy-infrastructure.yaml** - Terraform apply for ROSA cluster and AWS resources
-2. **02-configure-cluster.yaml** - Post-install cluster configuration (namespaces, SCCs)
-3. **03-mirror-images.yaml** - Mirror Confluent images to ECR
-4. **04-deploy-external-secrets.yaml** - External Secrets Operator with AWS SM backend
-5. **05-deploy-argocd.yaml** - Configure OpenShift GitOps Operator
-6. **06-deploy-cfk-operator.yaml** - Confluent for Kubernetes Operator
-7. **07-deploy-cert-manager.yaml** - cert-manager with Let's Encrypt
-8. **08-deploy-confluent-platform.yaml** - Deploy Confluent Platform components
-9. **09-deploy-routes.yaml** - OpenShift Routes for external access
-10. **10-deploy-monitoring.yaml** - ServiceMonitors and PrometheusRules
+### Destroy (When Done)
 
-### Destruction (Reverse Order)
+| # | Workflow | Description |
+|---|----------|-------------|
+| 100 | **deprovision-rosa** | Delete ROSA cluster and cleanup |
 
-Execute workflows in the following order:
+## Required GitHub Secrets
 
-1. **91-destroy-confluent-platform.yaml** - Delete Confluent Platform components
-2. **92-destroy-cfk-operator.yaml** - Uninstall CFK Operator
-3. **93-destroy-monitoring.yaml** - Remove monitoring resources
-4. **94-destroy-routes.yaml** - Delete OpenShift Routes
-5. **95-destroy-cert-manager.yaml** - Uninstall cert-manager
-6. **96-destroy-argocd.yaml** - Remove ArgoCD configuration
-7. **97-destroy-external-secrets.yaml** - Uninstall External Secrets Operator
-8. **98-destroy-cluster-config.yaml** - Remove cluster configuration
-9. **99-destroy-infrastructure.yaml** - Terraform destroy for ROSA and AWS resources
+Configure these secrets in your GitHub repository (Settings > Secrets > Actions):
 
-## Required Secrets
+| Secret | Description | How to Get |
+|--------|-------------|------------|
+| `AWS_ACCESS_KEY_ID` | AWS access key | AWS IAM Console |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key | AWS IAM Console |
+| `RHCS_TOKEN` | Red Hat Cloud Services token | [Get Token](https://cloud.redhat.com/openshift/token/rosa) |
+| `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password | Created by workflow 00 |
 
-Configure the following secrets in your GitHub repository:
+### Getting the Secrets
 
-| Secret | Description |
-|--------|-------------|
-| `AWS_ACCESS_KEY_ID` | AWS access key for Terraform and AWS CLI |
-| `AWS_SECRET_ACCESS_KEY` | AWS secret key for Terraform and AWS CLI |
-| `RHCS_TOKEN` | Red Hat Cloud Services API token |
-| `OPENSHIFT_ADMIN_PASSWORD` | OpenShift cluster admin password |
-| `ARGOCD_SSH_PRIVATE_KEY` | SSH private key for ArgoCD Git repo access |
-| `ACME_EMAIL` | Email for Let's Encrypt certificate registration |
-| `DOCKER_HUB_USERNAME` | (Optional) Docker Hub username for rate limits |
-| `DOCKER_HUB_TOKEN` | (Optional) Docker Hub token for rate limits |
-| `DATADOG_API_KEY` | (Optional) DataDog API key for monitoring |
+#### AWS Credentials
+1. Go to AWS IAM Console
+2. Create a user with programmatic access
+3. Attach policies: `AdministratorAccess` (or create custom policy)
+4. Save the Access Key ID and Secret Access Key
 
-## Environment Protection Rules
+#### RHCS Token
+1. Go to https://cloud.redhat.com/openshift/token/rosa
+2. Click "Load token" or "Generate token"
+3. Copy the token value
 
-For production environments, configure environment protection rules in GitHub:
+#### OpenShift Admin Password
+1. Run workflow **00-provision-rosa**
+2. Check the workflow logs for the `rosa create admin` output
+3. Copy the password and add it as `OPENSHIFT_ADMIN_PASSWORD` secret
 
-1. Go to Settings > Environments
-2. Create environments: `dev`, `staging`, `prod`
-3. For `staging` and `prod`, enable:
-   - Required reviewers
-   - Wait timer (optional)
-   - Deployment branches (e.g., `main` only)
+## Workflow Details
 
-## Workflow Inputs
+### 00-provision-rosa.yaml
+Creates a new ROSA cluster using the ROSA CLI.
 
-Most workflows accept the following inputs:
+**Inputs:**
+- `cluster_name`: Name for the cluster (default: `cfk-test`)
+- `environment`: Configuration profile (minimal, dev, staging, prod)
+- `compute_nodes`: Number of worker nodes (default: 2)
+- `instance_type`: EC2 instance type (default: m5.xlarge)
+- `multi_az`: Multi-AZ deployment (default: false)
 
-- **environment**: Target environment (`dev`, `staging`, `prod`)
-- **confirm**: Confirmation string for destructive operations
+**Cost Estimates:**
+| Config | Hourly | Daily |
+|--------|--------|-------|
+| minimal (2x m5.xlarge, single AZ) | ~$0.65 | ~$15 |
+| dev (3x m5.xlarge, multi AZ) | ~$0.85 | ~$20 |
 
-## Artifacts
+### 02-configure-cluster.yaml
+Configures the cluster for Confluent Platform.
 
-Workflows produce the following artifacts:
+**Creates:**
+- `confluent` namespace
+- `confluent-operator` namespace
+- `confluent-scc` SecurityContextConstraints
+- Grants SCCs to service accounts
 
-- `terraform-outputs-{environment}`: Terraform output values (JSON)
-- `tfplan-{environment}-{run_id}`: Terraform plan files
+### 06-deploy-cfk-operator.yaml
+Installs Confluent for Kubernetes operator via Helm.
 
-Artifacts are used to pass configuration between workflows. The Terraform outputs artifact is particularly important as it contains:
+**Inputs:**
+- `cluster_name`: ROSA cluster name
+- `cfk_version`: Helm chart version (default: 0.921.20)
 
-- Cluster API URL
-- ECR registry URL
-- IAM role ARNs for IRSA
-- Route53 zone ID
-- Domain name
+### 08-deploy-confluent-platform.yaml
+Deploys all Confluent Platform components.
+
+**Components deployed:**
+- KRaft Controller (3 replicas)
+- Kafka (3 replicas)
+- Schema Registry (1 replica)
+- Connect (1 replica)
+- ksqlDB (1 replica)
+- Control Center (1 replica)
+- REST Proxy (1 replica)
+
+### 100-deprovision-rosa.yaml
+Destroys the ROSA cluster and cleans up AWS resources.
+
+**Inputs:**
+- `cluster_name`: Cluster to delete
+- `confirm_cluster_name`: Type cluster name again to confirm
+
+**⚠️ IMPORTANT:** Run this when done testing to stop AWS charges!
+
+## Cost Management
+
+### Minimize Costs
+1. Use `minimal` environment (2 nodes, single AZ)
+2. Destroy cluster when not in use
+3. Test during business hours only
+
+### Example Testing Session
+```
+Morning:  Run 00-provision-rosa (~$0.50)
+          Run 02, 06, 08 workflows
+          Test for 4 hours (~$2.60)
+Evening:  Run 100-deprovision-rosa
+
+Total: ~$3-4 for a day of testing
+```
 
 ## Troubleshooting
 
-### Workflow fails to download artifacts
-
-Artifacts expire after 90 days. Re-run the infrastructure workflow if outputs are missing.
+### "Cluster not found" error
+- Check cluster name matches across workflows
+- Verify cluster is in "ready" state: `rosa describe cluster -c <name>`
 
 ### OpenShift login fails
+- Verify `OPENSHIFT_ADMIN_PASSWORD` secret is set
+- Check cluster is accessible (not still provisioning)
 
-Ensure `OPENSHIFT_ADMIN_PASSWORD` secret is correct and the cluster is accessible.
+### CFK Operator fails to install
+- Ensure cluster configuration (workflow 02) completed successfully
+- Check SCCs are applied: `oc get scc confluent-scc`
 
-### Terraform state lock
-
-If Terraform reports a state lock, check for running workflows or manually release the lock in DynamoDB.
-
-### Image pull errors
-
-Verify ECR credentials and ensure images have been mirrored (workflow 03).
+### Components stuck in "Provisioning"
+- Check operator logs: `oc logs -n confluent-operator -l app=confluent-operator`
+- Verify node resources: `oc describe nodes`
+- Check events: `oc get events -n confluent --sort-by='.lastTimestamp'`

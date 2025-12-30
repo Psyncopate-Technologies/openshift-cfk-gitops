@@ -1,0 +1,169 @@
+name: 100-Deprovision ROSA Cluster
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_name:
+        description: 'Cluster name to destroy'
+        required: true
+        default: 'cfk-test'
+      confirm_cluster_name:
+        description: 'Type cluster name again to confirm'
+        required: true
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Confirmation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate cluster name confirmation
+        if: github.event.inputs.cluster_name != github.event.inputs.confirm_cluster_name
+        run: |
+          echo "ERROR: Cluster names do not match!"
+          echo "Entered: ${{ github.event.inputs.cluster_name }}"
+          echo "Confirmation: ${{ github.event.inputs.confirm_cluster_name }}"
+          exit 1
+
+  deprovision:
+    name: Deprovision ROSA Cluster
+    needs: validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install ROSA CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz
+          tar -xzf rosa-linux.tar.gz
+          sudo mv rosa /usr/local/bin/
+          rosa version
+
+      - name: Login to ROSA
+        run: |
+          rosa login --token="${{ secrets.RHCS_TOKEN }}"
+          rosa whoami
+
+      - name: Check Cluster Exists
+        id: check_cluster
+        run: |
+          if rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" &>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Cluster ${{ github.event.inputs.cluster_name }} found"
+            rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Cluster ${{ github.event.inputs.cluster_name }} not found"
+          fi
+
+      - name: Delete Cluster
+        if: steps.check_cluster.outputs.exists == 'true'
+        run: |
+          echo "Deleting cluster ${{ github.event.inputs.cluster_name }}..."
+          rosa delete cluster --cluster="${{ github.event.inputs.cluster_name }}" --yes --watch
+
+      - name: Wait for Cluster Deletion
+        if: steps.check_cluster.outputs.exists == 'true'
+        run: |
+          echo "Waiting for cluster deletion to complete..."
+
+          for i in {1..60}; do
+            if ! rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" &>/dev/null; then
+              echo "Cluster deleted successfully"
+              break
+            fi
+
+            STATE=$(rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" --output json 2>/dev/null | jq -r '.state // .status.state // "unknown"')
+            echo "Cluster state: $STATE (attempt $i/60)"
+
+            if [ "$STATE" == "uninstalling" ]; then
+              sleep 60
+            else
+              break
+            fi
+          done
+
+      - name: Delete Operator Roles
+        continue-on-error: true
+        run: |
+          echo "Deleting operator roles..."
+          rosa delete operator-roles -c "${{ github.event.inputs.cluster_name }}" --mode auto --yes 2>/dev/null || echo "Operator roles already deleted or not found"
+
+      - name: Delete OIDC Provider
+        continue-on-error: true
+        run: |
+          echo "Deleting OIDC provider..."
+          rosa delete oidc-provider -c "${{ github.event.inputs.cluster_name }}" --mode auto --yes 2>/dev/null || echo "OIDC provider already deleted or not found"
+
+      - name: Cleanup Orphaned Resources
+        continue-on-error: true
+        run: |
+          echo "Checking for orphaned CloudFormation stacks..."
+
+          # List and delete any orphaned stacks
+          STACKS=$(aws cloudformation list-stacks \
+            --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE \
+            --query "StackSummaries[?contains(StackName, '${{ github.event.inputs.cluster_name }}')].StackName" \
+            --output text)
+
+          if [ -n "$STACKS" ]; then
+            echo "Found stacks: $STACKS"
+            for stack in $STACKS; do
+              echo "Deleting stack: $stack"
+              aws cloudformation delete-stack --stack-name "$stack" || true
+            done
+          else
+            echo "No orphaned stacks found"
+          fi
+
+      - name: Verify Deletion
+        run: |
+          echo "Verifying cluster deletion..."
+
+          if rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" &>/dev/null; then
+            echo "WARNING: Cluster may still be deleting"
+            rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}"
+          else
+            echo "Cluster ${{ github.event.inputs.cluster_name }} has been deleted"
+          fi
+
+          echo ""
+          echo "Remaining ROSA clusters:"
+          rosa list clusters
+
+      - name: Generate Summary
+        run: |
+          echo "## ROSA Cluster Deprovisioned" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deleted Resources" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Cluster: ${{ github.event.inputs.cluster_name }} | Deleted |" >> $GITHUB_STEP_SUMMARY
+          echo "| Operator Roles | Cleaned up |" >> $GITHUB_STEP_SUMMARY
+          echo "| OIDC Provider | Cleaned up |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Cost Impact" >> $GITHUB_STEP_SUMMARY
+          echo "- Cluster charges have stopped" >> $GITHUB_STEP_SUMMARY
+          echo "- EBS volumes should be deleted within 24 hours" >> $GITHUB_STEP_SUMMARY
+          echo "- Check AWS Cost Explorer to verify" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Note" >> $GITHUB_STEP_SUMMARY
+          echo "Account-level roles are retained for future cluster creation." >> $GITHUB_STEP_SUMMARY
+          echo "To remove all ROSA resources from account:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo 'rosa delete account-roles --mode auto --yes' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

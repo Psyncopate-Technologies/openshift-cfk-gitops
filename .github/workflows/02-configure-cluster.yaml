@@ -3,15 +3,20 @@ name: 02-Configure Cluster
 on:
   workflow_dispatch:
     inputs:
+      cluster_name:
+        description: 'ROSA cluster name'
+        required: true
+        default: 'cfk-test'
       environment:
         description: 'Environment to configure'
         required: true
         type: choice
         options:
+          - minimal
           - dev
           - staging
           - prod
-        default: 'dev'
+        default: 'minimal'
 
 env:
   AWS_REGION: us-east-1
@@ -37,11 +42,12 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Download Terraform outputs
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-outputs-${{ github.event.inputs.environment }}
-          path: ./terraform-outputs
+      - name: Install ROSA CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz
+          tar -xzf rosa-linux.tar.gz
+          sudo mv rosa /usr/local/bin/
+          rosa version
 
       - name: Install OpenShift CLI
         run: |
@@ -50,103 +56,105 @@ jobs:
           sudo mv oc kubectl /usr/local/bin/
           oc version --client
 
+      - name: Login to ROSA
+        run: |
+          rosa login --token="${{ secrets.RHCS_TOKEN }}"
+
+      - name: Get Cluster Info
+        id: cluster
+        run: |
+          rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" --output json > cluster-info.json
+
+          API_URL=$(jq -r '.api.url' cluster-info.json)
+          CONSOLE_URL=$(jq -r '.console.url' cluster-info.json)
+          DOMAIN=$(jq -r '.dns.base_domain' cluster-info.json)
+
+          echo "api_url=${API_URL}" >> $GITHUB_OUTPUT
+          echo "console_url=${CONSOLE_URL}" >> $GITHUB_OUTPUT
+          echo "apps_domain=apps.${DOMAIN}" >> $GITHUB_OUTPUT
+
+          echo "Cluster API: $API_URL"
+          echo "Apps Domain: apps.${DOMAIN}"
+
       - name: Login to OpenShift
         run: |
-          CLUSTER_API=$(jq -r '.cluster_api_url.value' terraform-outputs/terraform-outputs.json)
-          oc login "$CLUSTER_API" \
+          oc login "${{ steps.cluster.outputs.api_url }}" \
             --username=cluster-admin \
             --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
             --insecure-skip-tls-verify=true
 
       - name: Create Namespaces
         run: |
-          # Create required namespaces
           oc apply -f - <<EOF
           apiVersion: v1
           kind: Namespace
           metadata:
             name: confluent
             labels:
-              app.kubernetes.io/managed-by: argocd
+              app.kubernetes.io/managed-by: gitops
           ---
           apiVersion: v1
           kind: Namespace
           metadata:
             name: confluent-operator
             labels:
-              app.kubernetes.io/managed-by: argocd
-          ---
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: external-secrets
-            labels:
-              app.kubernetes.io/managed-by: argocd
+              app.kubernetes.io/managed-by: gitops
           EOF
 
       - name: Apply Security Context Constraints
         run: |
-          oc apply -f environments/${{ github.event.inputs.environment }}/cluster-config/scc.yaml
+          oc apply -f environments/dev/cluster-config/scc.yaml
 
-      - name: Configure Image Pull Secret for ECR
+      - name: Grant SCC to Service Accounts
         run: |
-          ECR_REGISTRY=$(jq -r '.ecr_registry_url.value' terraform-outputs/terraform-outputs.json)
+          for sa in default kafka kraftcontroller schemaregistry connect ksqldb controlcenter kafkarestproxy; do
+            oc adm policy add-scc-to-user confluent-scc -z $sa -n confluent 2>/dev/null || true
+          done
 
-          # Get ECR login token
-          ECR_TOKEN=$(aws ecr get-login-password --region ${{ env.AWS_REGION }})
-
-          # Create docker config
-          DOCKER_CONFIG=$(echo -n "AWS:${ECR_TOKEN}" | base64)
-
-          # Create pull secret in confluent namespace
-          oc create secret docker-registry ecr-pull-secret \
-            --docker-server="${ECR_REGISTRY}" \
-            --docker-username=AWS \
-            --docker-password="${ECR_TOKEN}" \
-            --namespace=confluent \
-            --dry-run=client -o yaml | oc apply -f -
-
-          # Create pull secret in confluent-operator namespace
-          oc create secret docker-registry ecr-pull-secret \
-            --docker-server="${ECR_REGISTRY}" \
-            --docker-username=AWS \
-            --docker-password="${ECR_TOKEN}" \
-            --namespace=confluent-operator \
-            --dry-run=client -o yaml | oc apply -f -
-
-          # Link to default service accounts
-          oc secrets link default ecr-pull-secret --for=pull -n confluent || true
-          oc secrets link default ecr-pull-secret --for=pull -n confluent-operator || true
-
-      - name: Apply Additional Cluster Configuration
+      - name: Save Cluster Configuration
         run: |
-          # Apply any additional cluster config from kustomization
-          if [ -f "environments/${{ github.event.inputs.environment }}/cluster-config/kustomization.yaml" ]; then
-            oc apply -k environments/${{ github.event.inputs.environment }}/cluster-config/
-          fi
+          mkdir -p cluster-config
+
+          cat > cluster-config/config.env << EOF
+          CLUSTER_NAME=${{ github.event.inputs.cluster_name }}
+          API_URL=${{ steps.cluster.outputs.api_url }}
+          CONSOLE_URL=${{ steps.cluster.outputs.console_url }}
+          APPS_DOMAIN=${{ steps.cluster.outputs.apps_domain }}
+          ENVIRONMENT=${{ github.event.inputs.environment }}
+          EOF
+
+          cp cluster-info.json cluster-config/
+
+      - name: Upload Cluster Configuration
+        uses: actions/upload-artifact@v4
+        with:
+          name: cluster-config-${{ github.event.inputs.cluster_name }}
+          path: cluster-config/
+          retention-days: 90
 
       - name: Verify Configuration
         run: |
           echo "Verifying cluster configuration..."
           echo ""
           echo "Namespaces:"
-          oc get namespaces | grep -E "confluent|external-secrets"
+          oc get namespaces | grep -E "confluent"
           echo ""
           echo "Security Context Constraints:"
-          oc get scc confluent-scc -o yaml | head -30
+          oc get scc confluent-scc
           echo ""
-          echo "Secrets in confluent namespace:"
-          oc get secrets -n confluent
 
       - name: Generate Summary
         run: |
           echo "## Cluster Configuration Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** ${{ github.event.inputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
           echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Apps Domain:** ${{ steps.cluster.outputs.apps_domain }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Created Resources" >> $GITHUB_STEP_SUMMARY
           echo "- Namespace: confluent" >> $GITHUB_STEP_SUMMARY
           echo "- Namespace: confluent-operator" >> $GITHUB_STEP_SUMMARY
-          echo "- Namespace: external-secrets" >> $GITHUB_STEP_SUMMARY
           echo "- SecurityContextConstraints: confluent-scc" >> $GITHUB_STEP_SUMMARY
-          echo "- ECR Pull Secrets configured" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "Run **06-Deploy CFK Operator** workflow" >> $GITHUB_STEP_SUMMARY
