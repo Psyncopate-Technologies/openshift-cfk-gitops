@@ -35,12 +35,10 @@ spec:
       bootstrapEndpoint: kafka.confluent.svc.cluster.local:9071
       tls:
         enabled: true
-        secretRef: ca-pair-sslcerts-truststore
     schemaRegistry:
       url: https://schemaregistry.confluent.svc.cluster.local:8081
       tls:
         enabled: true
-        secretRef: ca-pair-sslcerts-truststore
   configOverrides:
     server:
       - config.storage.replication.factor=3
