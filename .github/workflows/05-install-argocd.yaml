@@ -124,6 +124,37 @@ jobs:
             sleep 10
           done
 
+      - name: Create Custom Domain Route for ArgoCD
+        run: |
+          # Determine custom domain based on cluster name
+          case "${{ github.event.inputs.cluster_name }}" in
+            cfk-dev) CUSTOM_DOMAIN="dev.confluent.psyncopate.io" ;;
+            cfk-stg) CUSTOM_DOMAIN="stg.confluent.psyncopate.io" ;;
+            cfk-prd) CUSTOM_DOMAIN="prd.confluent.psyncopate.io" ;;
+            cfk-dr)  CUSTOM_DOMAIN="dr.confluent.psyncopate.io" ;;
+            *)       CUSTOM_DOMAIN="dev.confluent.psyncopate.io" ;;
+          esac
+
+          echo "Creating ArgoCD route for argocd.${CUSTOM_DOMAIN}"
+
+          cat <<EOF | oc apply -f -
+          apiVersion: route.openshift.io/v1
+          kind: Route
+          metadata:
+            name: argocd-custom
+            namespace: openshift-gitops
+          spec:
+            host: argocd.${CUSTOM_DOMAIN}
+            to:
+              kind: Service
+              name: openshift-gitops-server
+            port:
+              targetPort: https
+            tls:
+              termination: passthrough
+              insecureEdgeTerminationPolicy: Redirect
+          EOF
+
       - name: Get ArgoCD Admin Password
         id: argocd
         run: |
@@ -132,9 +163,13 @@ jobs:
           echo "::add-mask::${ARGOCD_PASSWORD}"
           echo "password=${ARGOCD_PASSWORD}" >> $GITHUB_OUTPUT
 
-          # Get the ArgoCD URL
+          # Get the default ArgoCD URL
           ARGOCD_URL=$(oc get route openshift-gitops-server -n openshift-gitops -o jsonpath='{.spec.host}')
           echo "url=${ARGOCD_URL}" >> $GITHUB_OUTPUT
+
+          # Get the custom domain URL
+          ARGOCD_CUSTOM_URL=$(oc get route argocd-custom -n openshift-gitops -o jsonpath='{.spec.host}' 2>/dev/null || echo "")
+          echo "custom_url=${ARGOCD_CUSTOM_URL}" >> $GITHUB_OUTPUT
 
       - name: Verify Installation
         run: |
@@ -153,7 +188,8 @@ jobs:
           echo "### Access Information" >> $GITHUB_STEP_SUMMARY
           echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| URL | https://${{ steps.argocd.outputs.url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Custom Domain URL | https://${{ steps.argocd.outputs.custom_url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Default URL | https://${{ steps.argocd.outputs.url }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Username | admin |" >> $GITHUB_STEP_SUMMARY
           echo "| Password | (see workflow logs or get from secret) |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -163,5 +199,5 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "1. Access ArgoCD UI at the URL above" >> $GITHUB_STEP_SUMMARY
+          echo "1. Access ArgoCD UI at the Custom Domain URL above" >> $GITHUB_STEP_SUMMARY
           echo "2. Run **06-Deploy ArgoCD Apps** to deploy Confluent Platform via GitOps" >> $GITHUB_STEP_SUMMARY
