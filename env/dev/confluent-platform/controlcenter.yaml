@@ -54,3 +54,4 @@ spec:
       - confluent.controlcenter.command.topic.replication=3
       - confluent.metrics.topic.replication=3
       - confluent.controlcenter.ui.autoupdate.enable=true
+      - confluent.controlcenter.rest.sni.host.check.enabled=false
