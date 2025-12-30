@@ -48,11 +48,9 @@ spec:
     internal:
       tls:
         enabled: true
-        secretRef: ca-pair-sslcerts-truststore
     external:
       tls:
         enabled: true
-        secretRef: ca-pair-sslcerts-truststore
       externalAccess:
         type: route
         route:
