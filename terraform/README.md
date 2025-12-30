@@ -1,54 +1,117 @@
 # Terraform ROSA Provisioning
 
-Deploy ROSA (Red Hat OpenShift Service on AWS) clusters using Terraform for proper Infrastructure as Code management.
+Deploy ROSA (Red Hat OpenShift Service on AWS) clusters using Terraform for proper Infrastructure as Code management with multi-environment support.
+
+## Multi-Environment Architecture
+
+```
+terraform/
+├── main.tf                    # ROSA cluster resources
+├── variables.tf               # Input variables
+├── outputs.tf                 # Output values
+├── versions.tf                # Provider and backend config
+└── environments/
+    ├── dev/
+    │   ├── terraform.tfvars   # Dev cluster config
+    │   └── backend.tfvars     # Dev state backend
+    ├── stg/
+    │   ├── terraform.tfvars   # Staging cluster config
+    │   └── backend.tfvars     # Staging state backend
+    ├── prd/
+    │   ├── terraform.tfvars   # Production cluster config
+    │   └── backend.tfvars     # Production state backend
+    └── dr/
+        ├── terraform.tfvars   # DR cluster config
+        └── backend.tfvars     # DR state backend
+```
+
+## Environment Configuration
+
+| Environment | Cluster | Region | Nodes | Instance | Multi-AZ | Domain |
+|-------------|---------|--------|-------|----------|----------|--------|
+| **dev** | cfk-dev | us-east-1 | 2 | m5.xlarge | No | dev.confluent.psyncopate.io |
+| **stg** | cfk-stg | us-east-1 | 3 | m5.xlarge | Yes | stg.confluent.psyncopate.io |
+| **prd** | cfk-prd | us-east-1 | 3 | m5.2xlarge | Yes | prd.confluent.psyncopate.io |
+| **dr** | cfk-dr | us-west-2 | 3 | m5.2xlarge | Yes | dr.confluent.psyncopate.io |
 
 ## Prerequisites
 
 1. **AWS CLI** configured with appropriate credentials
 2. **Terraform** >= 1.0.0
-3. **ROSA CLI** (optional, for verification)
-4. **Red Hat Cloud Services Token** from [cloud.redhat.com](https://cloud.redhat.com/openshift/token/rosa)
+3. **Red Hat Cloud Services Token** from [cloud.redhat.com](https://cloud.redhat.com/openshift/token/rosa)
+4. **S3 Bucket** for Terraform state (create before first use)
+5. **DynamoDB Table** for state locking (optional but recommended)
+
+### Create State Backend
+
+```bash
+# Create S3 bucket for state
+aws s3 mb s3://psyncopate-terraform-state --region us-east-1
+
+# Enable versioning
+aws s3api put-bucket-versioning \
+  --bucket psyncopate-terraform-state \
+  --versioning-configuration Status=Enabled
+
+# Create DynamoDB table for locking
+aws dynamodb create-table \
+  --table-name terraform-locks \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH \
+  --billing-mode PAY_PER_REQUEST \
+  --region us-east-1
+```
 
 ## Quick Start
 
-```bash
-# Initialize Terraform
-cd terraform
-terraform init
+### Via GitHub Actions (Recommended)
 
-# Copy and edit variables
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your values
+1. Go to **Actions** → **01-Provision ROSA (Terraform)**
+2. Select environment: `dev`, `stg`, `prd`, or `dr`
+3. Select action: `plan` (preview) or `apply` (create)
+4. Run the workflow
+
+### Via CLI
+
+```bash
+cd terraform
 
 # Set sensitive variables
 export TF_VAR_rhcs_token="your-rhcs-token"
-export TF_VAR_admin_password="your-secure-password"  # Optional
+export TF_VAR_admin_password="your-secure-password"
 
-# Plan the deployment
-terraform plan
+# Initialize for dev environment
+terraform init -backend-config=environments/dev/backend.tfvars
+
+# Plan
+terraform plan -var-file=environments/dev/terraform.tfvars
 
 # Apply
-terraform apply
+terraform apply -var-file=environments/dev/terraform.tfvars
 ```
 
-## Configuration
+### Switching Environments
 
-### Required Variables
+```bash
+# Re-initialize for a different environment
+terraform init -backend-config=environments/prd/backend.tfvars -reconfigure
 
-| Variable | Description |
-|----------|-------------|
-| `rhcs_token` | Red Hat Cloud Services API token |
+# Plan production
+terraform plan -var-file=environments/prd/terraform.tfvars
+```
 
-### Optional Variables
+## Environment Variables
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `cluster_name` | `cfk-test` | ROSA cluster name |
-| `aws_region` | `us-east-1` | AWS region |
-| `compute_machine_type` | `m5.xlarge` | EC2 instance type |
-| `compute_nodes` | `2` | Number of worker nodes |
-| `multi_az` | `false` | Multi-AZ deployment |
-| `openshift_version` | `4.14.0` | OpenShift version |
+Each environment has its own `terraform.tfvars` with pre-configured values:
+
+| Variable | dev | stg | prd | dr |
+|----------|-----|-----|-----|-----|
+| cluster_name | cfk-dev | cfk-stg | cfk-prd | cfk-dr |
+| aws_region | us-east-1 | us-east-1 | us-east-1 | us-west-2 |
+| compute_nodes | 2 | 3 | 3 | 3 |
+| compute_machine_type | m5.xlarge | m5.xlarge | m5.2xlarge | m5.2xlarge |
+| multi_az | false | true | true | true |
+| custom_domain | dev.confluent... | stg.confluent... | prd.confluent... | dr.confluent... |
 
 ## Outputs
 
@@ -60,41 +123,43 @@ terraform output
 
 # Get specific values
 terraform output api_url
-terraform output console_url
-terraform output admin_password  # Sensitive, use -json flag
+terraform output dns_setup_instructions
+terraform output -json > cluster-config.json
 ```
 
 ## State Management
 
-### Local State (Default)
-State is stored locally in `terraform.tfstate`. Do not commit this file.
+Each environment has isolated state:
+- **dev**: `rosa/dev/terraform.tfstate`
+- **stg**: `rosa/stg/terraform.tfstate`
+- **prd**: `rosa/prd/terraform.tfstate`
+- **dr**: `rosa/dr/terraform.tfstate`
 
-### Remote State (Recommended for Teams)
-Uncomment and configure the S3 backend in `versions.tf`:
-
-```hcl
-backend "s3" {
-  bucket         = "your-terraform-state-bucket"
-  key            = "rosa/cfk-test/terraform.tfstate"
-  region         = "us-east-1"
-  encrypt        = true
-  dynamodb_table = "terraform-locks"
-}
-```
+Benefits:
+- Environments can be managed independently
+- No risk of accidentally modifying wrong environment
+- Clear separation of concerns
 
 ## Cleanup
 
 ```bash
-# Destroy all resources
-terraform destroy
+# Destroy specific environment
+terraform init -backend-config=environments/dev/backend.tfvars -reconfigure
+terraform destroy -var-file=environments/dev/terraform.tfvars
 ```
 
-## Integration with GitHub Actions
+Or via GitHub Actions with action: `destroy`
 
-This Terraform configuration can be run via the `01-provision-rosa-terraform.yaml` workflow which:
-1. Initializes Terraform with remote state
-2. Plans and applies changes
-3. Stores outputs as artifacts
+## Network CIDR Allocation
+
+Non-overlapping CIDRs for potential VPC peering:
+
+| Environment | Machine CIDR | Service CIDR | Pod CIDR |
+|-------------|--------------|--------------|----------|
+| dev | 10.0.0.0/16 | 172.30.0.0/16 | 10.128.0.0/14 |
+| stg | 10.1.0.0/16 | 172.31.0.0/16 | 10.132.0.0/14 |
+| prd | 10.2.0.0/16 | 172.32.0.0/16 | 10.136.0.0/14 |
+| dr | 10.3.0.0/16 | 172.33.0.0/16 | 10.140.0.0/14 |
 
 ## Next Steps
 

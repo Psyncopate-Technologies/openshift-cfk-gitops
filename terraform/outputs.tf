@@ -1,4 +1,13 @@
 # =============================================================================
+# Environment Output
+# =============================================================================
+
+output "environment" {
+  description = "Environment name"
+  value       = var.environment
+}
+
+# =============================================================================
 # Cluster Outputs
 # =============================================================================
 
@@ -77,22 +86,31 @@ output "oc_login_command" {
 }
 
 # =============================================================================
+# Custom Domain Output
+# =============================================================================
+
+output "custom_domain" {
+  description = "Custom domain for Confluent Platform"
+  value       = var.custom_domain
+}
+
+# =============================================================================
 # DNS Configuration Output
 # =============================================================================
 
 output "dns_setup_instructions" {
   description = "DNS setup instructions for custom domain"
-  value       = <<-EOT
-    To use custom domain dev.confluent.psyncopate.io:
+  value       = var.custom_domain != "" ? <<-EOT
+    To use custom domain ${var.custom_domain}:
 
     Create a wildcard CNAME record:
-    *.dev.confluent.psyncopate.io -> *.apps.${rhcs_cluster_rosa_classic.cluster.domain}
+    *.${var.custom_domain} -> *.apps.${rhcs_cluster_rosa_classic.cluster.domain}
 
     Access URLs after DNS setup:
-    - Control Center: https://controlcenter.dev.confluent.psyncopate.io
-    - Schema Registry: https://schemaregistry.dev.confluent.psyncopate.io
-    - Connect: https://connect.dev.confluent.psyncopate.io
-    - ksqlDB: https://ksqldb.dev.confluent.psyncopate.io
-    - REST Proxy: https://kafkarestproxy.dev.confluent.psyncopate.io
-  EOT
+    - Control Center: https://controlcenter.${var.custom_domain}
+    - Schema Registry: https://schemaregistry.${var.custom_domain}
+    - Connect: https://connect.${var.custom_domain}
+    - ksqlDB: https://ksqldb.${var.custom_domain}
+    - REST Proxy: https://kafkarestproxy.${var.custom_domain}
+  EOT : "No custom domain configured. Access services via OpenShift routes."
 }

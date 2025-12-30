@@ -20,12 +20,9 @@ terraform {
     }
   }
 
-  # Uncomment to use S3 backend for state management
-  # backend "s3" {
-  #   bucket         = "your-terraform-state-bucket"
-  #   key            = "rosa/cfk-test/terraform.tfstate"
-  #   region         = "us-east-1"
-  #   encrypt        = true
-  #   dynamodb_table = "terraform-locks"
-  # }
+  # S3 backend for state management (configured per environment)
+  # Initialize with: terraform init -backend-config=environments/<env>/backend.tfvars
+  backend "s3" {
+    # Values provided via -backend-config flag
+  }
 }

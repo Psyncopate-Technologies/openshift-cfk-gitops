@@ -1,4 +1,19 @@
 # =============================================================================
+# Environment Configuration
+# =============================================================================
+
+variable "environment" {
+  description = "Environment name (dev, stg, prd, dr)"
+  type        = string
+  default     = "dev"
+
+  validation {
+    condition     = contains(["dev", "stg", "prd", "dr"], var.environment)
+    error_message = "Environment must be one of: dev, stg, prd, dr"
+  }
+}
+
+# =============================================================================
 # ROSA Cluster Variables
 # =============================================================================
 
@@ -91,6 +106,16 @@ variable "admin_password" {
   type        = string
   default     = ""
   sensitive   = true
+}
+
+# =============================================================================
+# Custom Domain
+# =============================================================================
+
+variable "custom_domain" {
+  description = "Custom domain for Confluent Platform access (e.g., dev.confluent.psyncopate.io)"
+  type        = string
+  default     = ""
 }
 
 # =============================================================================

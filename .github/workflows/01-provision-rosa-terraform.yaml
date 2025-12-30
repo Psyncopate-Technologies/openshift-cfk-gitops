@@ -3,10 +3,16 @@ name: 01-Provision ROSA (Terraform)
 on:
   workflow_dispatch:
     inputs:
-      cluster_name:
-        description: 'Cluster name'
+      environment:
+        description: 'Target environment'
         required: true
-        default: 'cfk-test'
+        type: choice
+        options:
+          - dev
+          - stg
+          - prd
+          - dr
+        default: 'dev'
       action:
         description: 'Terraform action'
         required: true
@@ -16,32 +22,27 @@ on:
           - apply
           - destroy
         default: 'plan'
-      compute_nodes:
-        description: 'Number of compute nodes'
-        required: true
-        default: '2'
-      instance_type:
-        description: 'EC2 instance type'
-        required: true
+      override_cluster_name:
+        description: 'Override cluster name (leave empty to use environment default)'
+        required: false
+        default: ''
+      override_compute_nodes:
+        description: 'Override compute nodes (leave empty to use environment default)'
+        required: false
+        default: ''
+      override_instance_type:
+        description: 'Override instance type (leave empty to use environment default)'
+        required: false
         type: choice
         options:
+          - ''
           - m5.xlarge
           - m5.2xlarge
           - m5.4xlarge
-        default: 'm5.xlarge'
-      multi_az:
-        description: 'Multi-AZ deployment'
-        required: true
-        type: boolean
-        default: false
+        default: ''
 
 env:
   AWS_REGION: us-east-1
-  TF_VAR_cluster_name: ${{ github.event.inputs.cluster_name }}
-  TF_VAR_compute_nodes: ${{ github.event.inputs.compute_nodes }}
-  TF_VAR_compute_machine_type: ${{ github.event.inputs.instance_type }}
-  TF_VAR_multi_az: ${{ github.event.inputs.multi_az }}
-  TF_VAR_aws_region: us-east-1
 
 permissions:
   contents: read
@@ -49,8 +50,9 @@ permissions:
 
 jobs:
   terraform:
-    name: Terraform ${{ github.event.inputs.action }}
+    name: Terraform ${{ github.event.inputs.action }} (${{ github.event.inputs.environment }})
     runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
 
     defaults:
       run:
@@ -60,12 +62,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set Environment Variables
+        id: env_vars
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+          echo "env_name=${ENV}" >> $GITHUB_OUTPUT
+
+          # Set AWS region based on environment (DR uses us-west-2)
+          if [ "$ENV" == "dr" ]; then
+            echo "aws_region=us-west-2" >> $GITHUB_OUTPUT
+          else
+            echo "aws_region=us-east-1" >> $GITHUB_OUTPUT
+          fi
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ steps.env_vars.outputs.aws_region }}
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -74,7 +89,9 @@ jobs:
 
       - name: Terraform Init
         id: init
-        run: terraform init
+        run: |
+          terraform init \
+            -backend-config="environments/${{ github.event.inputs.environment }}/backend.tfvars"
         env:
           TF_VAR_rhcs_token: ${{ secrets.RHCS_TOKEN }}
 
@@ -91,9 +108,23 @@ jobs:
         id: plan
         if: github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
         run: |
+          # Build override arguments if provided
+          OVERRIDE_ARGS=""
+          if [ -n "${{ github.event.inputs.override_cluster_name }}" ]; then
+            OVERRIDE_ARGS="$OVERRIDE_ARGS -var=cluster_name=${{ github.event.inputs.override_cluster_name }}"
+          fi
+          if [ -n "${{ github.event.inputs.override_compute_nodes }}" ]; then
+            OVERRIDE_ARGS="$OVERRIDE_ARGS -var=compute_nodes=${{ github.event.inputs.override_compute_nodes }}"
+          fi
+          if [ -n "${{ github.event.inputs.override_instance_type }}" ]; then
+            OVERRIDE_ARGS="$OVERRIDE_ARGS -var=compute_machine_type=${{ github.event.inputs.override_instance_type }}"
+          fi
+
           terraform plan \
+            -var-file="environments/${{ github.event.inputs.environment }}/terraform.tfvars" \
             -var="rhcs_token=${{ secrets.RHCS_TOKEN }}" \
             -var="admin_password=${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            $OVERRIDE_ARGS \
             -out=tfplan \
             -no-color
         continue-on-error: true
@@ -102,7 +133,7 @@ jobs:
         if: github.event.inputs.action == 'plan'
         uses: actions/upload-artifact@v4
         with:
-          name: terraform-plan-${{ github.event.inputs.cluster_name }}
+          name: terraform-plan-${{ github.event.inputs.environment }}
           path: terraform/tfplan
           retention-days: 7
 
@@ -119,9 +150,17 @@ jobs:
         id: destroy
         if: github.event.inputs.action == 'destroy'
         run: |
+          # Build override arguments if provided
+          OVERRIDE_ARGS=""
+          if [ -n "${{ github.event.inputs.override_cluster_name }}" ]; then
+            OVERRIDE_ARGS="$OVERRIDE_ARGS -var=cluster_name=${{ github.event.inputs.override_cluster_name }}"
+          fi
+
           terraform destroy \
+            -var-file="environments/${{ github.event.inputs.environment }}/terraform.tfvars" \
             -var="rhcs_token=${{ secrets.RHCS_TOKEN }}" \
             -var="admin_password=${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            $OVERRIDE_ARGS \
             -auto-approve
         env:
           TF_VAR_rhcs_token: ${{ secrets.RHCS_TOKEN }}
@@ -130,9 +169,12 @@ jobs:
         id: outputs
         if: github.event.inputs.action == 'apply'
         run: |
+          echo "environment=$(terraform output -raw environment)" >> $GITHUB_OUTPUT
+          echo "cluster_name=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
           echo "api_url=$(terraform output -raw api_url)" >> $GITHUB_OUTPUT
           echo "console_url=$(terraform output -raw console_url)" >> $GITHUB_OUTPUT
           echo "apps_domain=$(terraform output -raw apps_domain)" >> $GITHUB_OUTPUT
+          echo "custom_domain=$(terraform output -raw custom_domain)" >> $GITHUB_OUTPUT
 
       - name: Save Cluster Configuration
         if: github.event.inputs.action == 'apply'
@@ -141,17 +183,19 @@ jobs:
           terraform output -json > ../cluster-config/terraform-outputs.json
 
           cat > ../cluster-config/config.env << EOF
-          CLUSTER_NAME=${{ github.event.inputs.cluster_name }}
+          ENVIRONMENT=${{ github.event.inputs.environment }}
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
           API_URL=$(terraform output -raw api_url)
           CONSOLE_URL=$(terraform output -raw console_url)
           APPS_DOMAIN=$(terraform output -raw apps_domain)
+          CUSTOM_DOMAIN=$(terraform output -raw custom_domain)
           EOF
 
       - name: Upload Cluster Configuration
         if: github.event.inputs.action == 'apply'
         uses: actions/upload-artifact@v4
         with:
-          name: rosa-cluster-${{ github.event.inputs.cluster_name }}-terraform
+          name: rosa-cluster-${{ github.event.inputs.environment }}-terraform
           path: cluster-config/
           retention-days: 90
 
@@ -160,8 +204,9 @@ jobs:
         run: |
           echo "## Terraform ${{ github.event.inputs.action }} Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Cluster:** ${{ github.event.inputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
           echo "**Action:** ${{ github.event.inputs.action }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Region:** ${{ steps.env_vars.outputs.aws_region }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ "${{ github.event.inputs.action }}" == "plan" ]; then
@@ -169,7 +214,9 @@ jobs:
             if [ "${{ steps.plan.outcome }}" == "success" ]; then
               echo "Plan completed successfully. Review the plan output above." >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
-              echo "To apply changes, run this workflow again with action: **apply**" >> $GITHUB_STEP_SUMMARY
+              echo "To apply changes, run this workflow again with:" >> $GITHUB_STEP_SUMMARY
+              echo "- **Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+              echo "- **Action:** apply" >> $GITHUB_STEP_SUMMARY
             else
               echo "Plan failed. Check the logs for details." >> $GITHUB_STEP_SUMMARY
             fi
@@ -179,23 +226,26 @@ jobs:
             echo "### Cluster Details" >> $GITHUB_STEP_SUMMARY
             echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
             echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| **Environment** | ${{ steps.outputs.outputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Cluster Name** | ${{ steps.outputs.outputs.cluster_name }} |" >> $GITHUB_STEP_SUMMARY
             echo "| **API URL** | ${{ steps.outputs.outputs.api_url }} |" >> $GITHUB_STEP_SUMMARY
             echo "| **Console URL** | ${{ steps.outputs.outputs.console_url }} |" >> $GITHUB_STEP_SUMMARY
             echo "| **Apps Domain** | ${{ steps.outputs.outputs.apps_domain }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| **Custom Domain** | ${{ steps.outputs.outputs.custom_domain }} |" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### DNS Setup" >> $GITHUB_STEP_SUMMARY
             echo "Create a wildcard CNAME record:" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-            echo "*.dev.confluent.psyncopate.io -> *.${{ steps.outputs.outputs.apps_domain }}" >> $GITHUB_STEP_SUMMARY
+            echo "*.${{ steps.outputs.outputs.custom_domain }} -> *.${{ steps.outputs.outputs.apps_domain }}" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
             echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-            echo "1. Run **02-configure-cluster** workflow" >> $GITHUB_STEP_SUMMARY
+            echo "1. Run **02-configure-cluster** workflow with cluster: ${{ steps.outputs.outputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
             echo "2. Run **03-deploy-cfk-operator** workflow" >> $GITHUB_STEP_SUMMARY
             echo "3. Run **04-deploy-confluent-platform** workflow" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ github.event.inputs.action }}" == "destroy" ]; then
             echo "### Destroy Complete" >> $GITHUB_STEP_SUMMARY
-            echo "Cluster ${{ github.event.inputs.cluster_name }} has been destroyed." >> $GITHUB_STEP_SUMMARY
+            echo "Environment **${{ github.event.inputs.environment }}** cluster has been destroyed." >> $GITHUB_STEP_SUMMARY
           fi

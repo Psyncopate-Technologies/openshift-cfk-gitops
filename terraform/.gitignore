@@ -6,12 +6,16 @@
 crash.log
 crash.*.log
 
-# Exclude all .tfvars files (may contain sensitive data)
-*.tfvars
-*.tfvars.json
+# Exclude root .tfvars files (may contain sensitive data)
+/*.tfvars
+/*.tfvars.json
 
 # Keep the example file
 !*.tfvars.example
+
+# Allow environment-specific tfvars (no secrets, they use env vars)
+!environments/**/terraform.tfvars
+!environments/**/backend.tfvars
 
 # Terraform lock file (commit this for reproducibility)
 # .terraform.lock.hcl
