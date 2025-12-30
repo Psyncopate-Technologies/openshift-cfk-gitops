@@ -109,12 +109,12 @@ jobs:
       - name: Grant SCC to Operator Service Account
         run: |
           oc adm policy add-scc-to-user confluent-scc \
-            system:serviceaccount:confluent:confluent-for-kubernetes || true
+            system:serviceaccount:confluent-operator:confluent-for-kubernetes || true
 
       - name: Verify CFK Operator
         run: |
           echo "=== CFK Operator Pods ==="
-          oc get pods -n confluent -l app=confluent-operator
+          oc get pods -n confluent-operator -l app=confluent-operator
           echo ""
           echo "=== ArgoCD Application Status ==="
           oc get application cfk-operator -n openshift-gitops -o wide
@@ -138,7 +138,8 @@ jobs:
 
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### CFK Operator Details" >> $GITHUB_STEP_SUMMARY
-          echo "- **Namespace:** confluent" >> $GITHUB_STEP_SUMMARY
+          echo "- **Namespace:** confluent-operator" >> $GITHUB_STEP_SUMMARY
+          echo "- **Manages:** confluent namespace" >> $GITHUB_STEP_SUMMARY
           echo "- **Helm Chart:** confluent-for-kubernetes" >> $GITHUB_STEP_SUMMARY
           echo "- **Chart Version:** ${{ github.event.inputs.cfk_version }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
