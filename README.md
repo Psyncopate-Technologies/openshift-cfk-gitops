@@ -82,7 +82,17 @@ Choose one method to provision your ROSA cluster:
 - State tracking and drift detection
 - Plan/review before apply
 - Easier cleanup with `terraform destroy`
-- Better for multi-cluster management
+- Multi-environment support (dev, stg, prd, dr)
+- Isolated state per environment
+
+**Terraform Environments:**
+
+| Environment | Cluster | Region | Custom Domain |
+|-------------|---------|--------|---------------|
+| dev | cfk-dev | us-east-1 | dev.confluent.psyncopate.io |
+| stg | cfk-stg | us-east-1 | stg.confluent.psyncopate.io |
+| prd | cfk-prd | us-east-1 | prd.confluent.psyncopate.io |
+| dr | cfk-dr | us-west-2 | dr.confluent.psyncopate.io |
 
 See [terraform/README.md](terraform/README.md) for Terraform-specific documentation.
 
@@ -167,7 +177,13 @@ openshift-cfk-gitops/
 │   ├── main.tf                     # ROSA cluster resources
 │   ├── variables.tf                # Input variables
 │   ├── outputs.tf                  # Output values
-│   └── README.md                   # Terraform docs
+│   ├── versions.tf                 # Provider configuration
+│   ├── README.md                   # Terraform docs
+│   └── environments/               # Environment-specific configs
+│       ├── dev/                    # Development
+│       ├── stg/                    # Staging
+│       ├── prd/                    # Production
+│       └── dr/                     # Disaster Recovery
 ├── env/
 │   └── dev/
 │       ├── argocd/                 # ArgoCD Application manifests
