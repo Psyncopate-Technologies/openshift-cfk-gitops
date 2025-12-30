@@ -111,6 +111,26 @@ jobs:
             oc adm policy add-scc-to-user confluent-scc -z $sa -n confluent 2>/dev/null || true
           done
 
+      - name: Create Docker Hub Image Pull Secret
+        run: |
+          # Create dockerhub pull secret in confluent namespace
+          oc create secret docker-registry dockerhub-secret \
+            --docker-server=https://index.docker.io/v1/ \
+            --docker-username="${{ secrets.DOCKERHUB_USERNAME }}" \
+            --docker-password="${{ secrets.DOCKERHUB_TOKEN }}" \
+            --namespace=confluent \
+            --dry-run=client -o yaml | oc apply -f -
+
+          # Create dockerhub pull secret in confluent-operator namespace
+          oc create secret docker-registry dockerhub-secret \
+            --docker-server=https://index.docker.io/v1/ \
+            --docker-username="${{ secrets.DOCKERHUB_USERNAME }}" \
+            --docker-password="${{ secrets.DOCKERHUB_TOKEN }}" \
+            --namespace=confluent-operator \
+            --dry-run=client -o yaml | oc apply -f -
+
+          echo "Docker Hub image pull secrets created"
+
       - name: Save Cluster Configuration
         run: |
           mkdir -p cluster-config
@@ -155,6 +175,7 @@ jobs:
           echo "- Namespace: confluent" >> $GITHUB_STEP_SUMMARY
           echo "- Namespace: confluent-operator" >> $GITHUB_STEP_SUMMARY
           echo "- SecurityContextConstraints: confluent-scc" >> $GITHUB_STEP_SUMMARY
+          echo "- Secret: dockerhub-secret (image pull)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
           echo "Run **06-Deploy CFK Operator** workflow" >> $GITHUB_STEP_SUMMARY

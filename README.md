@@ -62,6 +62,10 @@ This project deploys Confluent Platform 8.1.1 on a ROSA (Red Hat OpenShift Servi
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key |
 | `RHCS_TOKEN` | Red Hat Cloud Services token ([Get token](https://cloud.redhat.com/openshift/token/rosa)) |
 | `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password (created by workflow 01) |
+| `DOCKERHUB_USERNAME` | Docker Hub username (for image pulls) |
+| `DOCKERHUB_TOKEN` | Docker Hub access token ([Create token](https://hub.docker.com/settings/security)) |
+
+> **Note:** Docker Hub credentials are required to avoid rate limits when pulling Confluent Platform images. Create a free Docker Hub account if you don't have one.
 
 ### Deployment Options
 

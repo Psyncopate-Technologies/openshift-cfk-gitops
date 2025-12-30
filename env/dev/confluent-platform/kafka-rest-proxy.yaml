@@ -8,6 +8,8 @@ spec:
   image:
     application: confluentinc/cp-kafka-rest:8.1.1
     init: confluentinc/confluent-init-container:3.1.1
+    pullSecretRef:
+      - dockerhub-secret
   podTemplate:
     resources:
       requests:
