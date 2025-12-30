@@ -22,7 +22,7 @@ spec:
           - confluent
   destination:
     server: https://kubernetes.default.svc
-    namespace: confluent
+    namespace: confluent-operator
   ignoreDifferences:
     - group: ""
       kind: ServiceAccount

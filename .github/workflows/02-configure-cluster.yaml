@@ -112,9 +112,13 @@ jobs:
 
       - name: Grant SCC to Service Accounts
         run: |
+          # Grant SCC to Confluent Platform service accounts
           for sa in default kafka kraftcontroller schemaregistry connect ksqldb controlcenter kafkarestproxy; do
             oc adm policy add-scc-to-user confluent-scc -z $sa -n confluent 2>/dev/null || true
           done
+
+          # Grant SCC to CFK operator service account
+          oc adm policy add-scc-to-user confluent-scc -z confluent-for-kubernetes -n confluent-operator 2>/dev/null || true
 
       - name: Create Docker Hub Image Pull Secret
         run: |
