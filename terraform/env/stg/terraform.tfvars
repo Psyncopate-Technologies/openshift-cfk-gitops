@@ -8,7 +8,7 @@ environment = "stg"
 cluster_name = "cfk-stg"
 
 # OpenShift version
-openshift_version = "4.14.0"
+openshift_version = "4.16.0"
 
 # AWS region
 aws_region = "us-east-1"

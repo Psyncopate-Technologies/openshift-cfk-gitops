@@ -8,7 +8,7 @@ environment = "dr"
 cluster_name = "cfk-dr"
 
 # OpenShift version (match production)
-openshift_version = "4.14.0"
+openshift_version = "4.16.0"
 
 # AWS region (different region from production for DR)
 aws_region = "us-west-2"
