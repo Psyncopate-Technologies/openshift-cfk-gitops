@@ -1,0 +1,135 @@
+name: 05-Install ArgoCD
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_name:
+        description: 'ROSA cluster name'
+        required: true
+        default: 'cfk-test'
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  install:
+    name: Install ArgoCD
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install ROSA CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz
+          tar -xzf rosa-linux.tar.gz
+          sudo mv rosa /usr/local/bin/
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+
+      - name: Login to ROSA
+        run: |
+          rosa login --token="${{ secrets.RHCS_TOKEN }}"
+
+      - name: Get Cluster Info
+        id: cluster
+        run: |
+          rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" --output json > cluster-info.json
+
+          API_URL=$(jq -r '.api.url' cluster-info.json)
+          DOMAIN=$(jq -r '.dns.base_domain' cluster-info.json)
+
+          echo "api_url=${API_URL}" >> $GITHUB_OUTPUT
+          echo "apps_domain=apps.${DOMAIN}" >> $GITHUB_OUTPUT
+
+      - name: Login to OpenShift
+        run: |
+          oc login "${{ steps.cluster.outputs.api_url }}" \
+            --username=cluster-admin \
+            --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            --insecure-skip-tls-verify=true
+
+      - name: Create ArgoCD Namespace
+        run: |
+          oc create namespace argocd --dry-run=client -o yaml | oc apply -f -
+
+      - name: Install ArgoCD
+        run: |
+          oc apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+      - name: Wait for ArgoCD to be ready
+        run: |
+          echo "Waiting for ArgoCD deployments..."
+          oc wait --for=condition=Available deployment/argocd-server -n argocd --timeout=300s
+          oc wait --for=condition=Available deployment/argocd-repo-server -n argocd --timeout=300s
+          oc wait --for=condition=Available deployment/argocd-applicationset-controller -n argocd --timeout=300s
+
+      - name: Create ArgoCD Route
+        run: |
+          cat <<EOF | oc apply -f -
+          apiVersion: route.openshift.io/v1
+          kind: Route
+          metadata:
+            name: argocd-server
+            namespace: argocd
+          spec:
+            to:
+              kind: Service
+              name: argocd-server
+            port:
+              targetPort: https
+            tls:
+              termination: passthrough
+              insecureEdgeTerminationPolicy: Redirect
+          EOF
+
+      - name: Get ArgoCD Admin Password
+        id: argocd
+        run: |
+          ARGOCD_PASSWORD=$(oc get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d)
+          echo "::add-mask::${ARGOCD_PASSWORD}"
+          echo "password=${ARGOCD_PASSWORD}" >> $GITHUB_OUTPUT
+
+          ARGOCD_URL=$(oc get route argocd-server -n argocd -o jsonpath='{.spec.host}')
+          echo "url=${ARGOCD_URL}" >> $GITHUB_OUTPUT
+
+      - name: Verify Installation
+        run: |
+          echo "=== ArgoCD Status ==="
+          oc get pods -n argocd
+          echo ""
+          echo "=== ArgoCD Route ==="
+          oc get route -n argocd
+
+      - name: Generate Summary
+        run: |
+          echo "## ArgoCD Installation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** ${{ github.event.inputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Access Information" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| URL | https://${{ steps.argocd.outputs.url }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Username | admin |" >> $GITHUB_STEP_SUMMARY
+          echo "| Password | ${{ steps.argocd.outputs.password }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Access ArgoCD UI at the URL above" >> $GITHUB_STEP_SUMMARY
+          echo "2. Run **06-Deploy ArgoCD Apps** to deploy Confluent Platform via GitOps" >> $GITHUB_STEP_SUMMARY

@@ -4,12 +4,13 @@ Deploy Confluent Platform on Red Hat OpenShift (ROSA) using GitHub Actions workf
 
 ## Overview
 
-This project deploys Confluent Platform 7.7.1 on a ROSA (Red Hat OpenShift Service on AWS) cluster using:
+This project deploys Confluent Platform 8.1.1 on a ROSA (Red Hat OpenShift Service on AWS) cluster using:
 
 - **ROSA CLI:** Automated cluster provisioning via GitHub Actions
-- **CFK Operator:** Confluent for Kubernetes 2.10.0
+- **CFK Operator:** Confluent for Kubernetes 3.1.1
 - **KRaft Mode:** No ZooKeeper dependency
 - **Docker Hub:** Direct image pulls (no ECR mirroring required)
+- **ArgoCD (Optional):** GitOps-based continuous deployment
 
 ## Architecture
 
@@ -37,13 +38,13 @@ This project deploys Confluent Platform 7.7.1 on a ROSA (Red Hat OpenShift Servi
 
 | Component | Version | Replicas |
 |-----------|---------|----------|
-| KRaft Controller | 7.7.1 | 3 |
-| Kafka | 7.7.1 | 3 |
-| Schema Registry | 7.7.1 | 1 |
-| Connect | 7.7.1 | 1 |
-| ksqlDB | 7.7.1 | 1 |
-| Control Center | 7.7.1 | 1 |
-| REST Proxy | 7.7.1 | 1 |
+| KRaft Controller | 8.1.1 | 3 |
+| Kafka | 8.1.1 | 3 |
+| Schema Registry | 8.1.1 | 1 |
+| Connect | 8.1.1 | 1 |
+| ksqlDB | 8.1.1 | 1 |
+| Control Center | 8.1.1 | 1 |
+| REST Proxy | 8.1.1 | 1 |
 
 ## Quick Start
 
@@ -62,7 +63,9 @@ This project deploys Confluent Platform 7.7.1 on a ROSA (Red Hat OpenShift Servi
 | `RHCS_TOKEN` | Red Hat Cloud Services token ([Get token](https://cloud.redhat.com/openshift/token/rosa)) |
 | `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password (created by workflow 01) |
 
-### Deployment
+### Deployment Options
+
+#### Option A: Direct Deployment (Simple)
 
 Run workflows in order via GitHub Actions:
 
@@ -70,6 +73,19 @@ Run workflows in order via GitHub Actions:
 2. **02-configure-cluster** - Configure namespaces and SCCs (~2 min)
 3. **03-deploy-cfk-operator** - Install CFK Operator (~5 min)
 4. **04-deploy-confluent-platform** - Deploy all components (~15 min)
+
+#### Option B: GitOps with ArgoCD (Recommended for Production)
+
+1. **01-provision-rosa** - Create ROSA cluster (~40 min)
+2. **02-configure-cluster** - Configure namespaces and SCCs (~2 min)
+3. **05-install-argocd** - Install ArgoCD (~5 min)
+4. **06-deploy-argocd-apps** - Deploy via ArgoCD (~10 min)
+
+**ArgoCD Benefits:**
+- Automatic sync when you push changes to git
+- Self-healing (drift detection and correction)
+- Visual dashboard for deployment status
+- Rollback capabilities
 
 **When done testing:**
 - **99-deprovision-rosa** - Destroy cluster (stops charges!)
@@ -85,10 +101,13 @@ openshift-cfk-gitops/
 │   ├── 02-configure-cluster.yaml
 │   ├── 03-deploy-cfk-operator.yaml
 │   ├── 04-deploy-confluent-platform.yaml
+│   ├── 05-install-argocd.yaml
+│   ├── 06-deploy-argocd-apps.yaml
 │   ├── 99-deprovision-rosa.yaml
 │   └── README.md
 ├── environments/
 │   └── dev/
+│       ├── argocd/            # ArgoCD Application manifests
 │       ├── cluster-config/     # Namespace and SCC definitions
 │       └── platform-dockerhub/ # Confluent Platform manifests
 └── docs/                       # Documentation
@@ -107,6 +126,7 @@ openshift-cfk-gitops/
 
 After deployment, access URLs are provided in the workflow summary:
 
+- **ArgoCD:** `https://argocd-server.<apps-domain>` (if using GitOps)
 - **Control Center:** `https://controlcenter.<apps-domain>`
 - **Schema Registry:** `https://schemaregistry.<apps-domain>`
 - **Connect:** `https://connect.<apps-domain>`

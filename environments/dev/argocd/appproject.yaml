@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: confluent
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Confluent Platform on OpenShift
+  sourceRepos:
+    - https://github.com/Psyncopate-Technologies/openshift-cfk-gitops.git
+    - https://packages.confluent.io/helm
+  destinations:
+    - namespace: confluent
+      server: https://kubernetes.default.svc
+    - namespace: confluent-operator
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist:
+    - group: ''
+      kind: Namespace
+    - group: 'apiextensions.k8s.io'
+      kind: CustomResourceDefinition
+  namespaceResourceWhitelist:
+    - group: ''
+      kind: '*'
+    - group: 'apps'
+      kind: '*'
+    - group: 'platform.confluent.io'
+      kind: '*'
+    - group: 'route.openshift.io'
+      kind: Route

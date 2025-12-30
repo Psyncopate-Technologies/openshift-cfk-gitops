@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cfk-operator
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://packages.confluent.io/helm
+    chart: confluent-for-kubernetes
+    targetRevision: 0.921.20
+    helm:
+      values: |
+        podSecurityContext:
+          runAsUser: 1000
+          runAsNonRoot: true
+          fsGroup: 1000
+        namespaced: false
+        namespaceList:
+          - confluent
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: confluent-operator
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

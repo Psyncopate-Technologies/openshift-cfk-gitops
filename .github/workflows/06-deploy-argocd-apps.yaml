@@ -1,0 +1,181 @@
+name: 06-Deploy ArgoCD Apps
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_name:
+        description: 'ROSA cluster name'
+        required: true
+        default: 'cfk-test'
+      deploy_operator:
+        description: 'Deploy CFK Operator via ArgoCD'
+        required: true
+        type: boolean
+        default: true
+      deploy_platform:
+        description: 'Deploy Confluent Platform via ArgoCD'
+        required: true
+        type: boolean
+        default: true
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy ArgoCD Applications
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install ROSA CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz
+          tar -xzf rosa-linux.tar.gz
+          sudo mv rosa /usr/local/bin/
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+
+      - name: Login to ROSA
+        run: |
+          rosa login --token="${{ secrets.RHCS_TOKEN }}"
+
+      - name: Get Cluster Info
+        id: cluster
+        run: |
+          rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" --output json > cluster-info.json
+
+          API_URL=$(jq -r '.api.url' cluster-info.json)
+          DOMAIN=$(jq -r '.dns.base_domain' cluster-info.json)
+
+          echo "api_url=${API_URL}" >> $GITHUB_OUTPUT
+          echo "apps_domain=apps.${DOMAIN}" >> $GITHUB_OUTPUT
+
+      - name: Login to OpenShift
+        run: |
+          oc login "${{ steps.cluster.outputs.api_url }}" \
+            --username=cluster-admin \
+            --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            --insecure-skip-tls-verify=true
+
+      - name: Update Manifests with Cluster Domain
+        run: |
+          APPS_DOMAIN="${{ steps.cluster.outputs.apps_domain }}"
+          sed -i "s/apps\.rm2\.thpm\.p1\.openshiftapps\.com/${APPS_DOMAIN}/g" environments/dev/platform-dockerhub/*.yaml
+          echo "Updated manifests with domain: ${APPS_DOMAIN}"
+
+      - name: Deploy AppProject
+        run: |
+          oc apply -f environments/dev/argocd/appproject.yaml
+
+      - name: Deploy CFK Operator Application
+        if: ${{ github.event.inputs.deploy_operator == 'true' }}
+        run: |
+          echo "Deploying CFK Operator via ArgoCD..."
+          oc apply -f environments/dev/argocd/cfk-operator-app.yaml
+
+          echo "Waiting for CFK Operator to sync..."
+          sleep 30
+
+          # Wait for sync
+          for i in {1..30}; do
+            STATUS=$(oc get application cfk-operator -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
+            HEALTH=$(oc get application cfk-operator -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
+            echo "CFK Operator - Sync: $STATUS, Health: $HEALTH (attempt $i/30)"
+            if [ "$STATUS" == "Synced" ] && [ "$HEALTH" == "Healthy" ]; then
+              echo "CFK Operator is synced and healthy!"
+              break
+            fi
+            sleep 20
+          done
+
+      - name: Grant SCC to Operator Service Account
+        if: ${{ github.event.inputs.deploy_operator == 'true' }}
+        run: |
+          oc adm policy add-scc-to-user confluent-scc \
+            system:serviceaccount:confluent-operator:confluent-for-kubernetes || true
+
+      - name: Deploy Confluent Platform Application
+        if: ${{ github.event.inputs.deploy_platform == 'true' }}
+        run: |
+          echo "Deploying Confluent Platform via ArgoCD..."
+          oc apply -f environments/dev/argocd/confluent-platform-app.yaml
+
+          echo "Waiting for initial sync..."
+          sleep 30
+
+          # Wait for sync
+          for i in {1..30}; do
+            STATUS=$(oc get application confluent-platform -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
+            HEALTH=$(oc get application confluent-platform -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
+            echo "Confluent Platform - Sync: $STATUS, Health: $HEALTH (attempt $i/30)"
+            if [ "$STATUS" == "Synced" ]; then
+              echo "Confluent Platform is synced!"
+              break
+            fi
+            sleep 20
+          done
+
+      - name: Verify ArgoCD Applications
+        run: |
+          echo "=== ArgoCD Applications ==="
+          oc get applications -n argocd
+          echo ""
+          echo "=== Application Details ==="
+          oc get applications -n argocd -o wide
+
+      - name: Generate Summary
+        run: |
+          APPS_DOMAIN="${{ steps.cluster.outputs.apps_domain }}"
+          ARGOCD_URL=$(oc get route argocd-server -n argocd -o jsonpath='{.spec.host}' 2>/dev/null || echo "N/A")
+
+          echo "## ArgoCD Applications Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** ${{ github.event.inputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**ArgoCD UI:** https://${ARGOCD_URL}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Application Status" >> $GITHUB_STEP_SUMMARY
+          echo "| Application | Sync Status | Health |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ github.event.inputs.deploy_operator }}" == "true" ]; then
+            SYNC=$(oc get application cfk-operator -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "N/A")
+            HEALTH=$(oc get application cfk-operator -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "N/A")
+            echo "| cfk-operator | ${SYNC} | ${HEALTH} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "${{ github.event.inputs.deploy_platform }}" == "true" ]; then
+            SYNC=$(oc get application confluent-platform -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "N/A")
+            HEALTH=$(oc get application confluent-platform -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "N/A")
+            echo "| confluent-platform | ${SYNC} | ${HEALTH} |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### GitOps Benefits" >> $GITHUB_STEP_SUMMARY
+          echo "- **Auto-sync:** Changes pushed to git are automatically deployed" >> $GITHUB_STEP_SUMMARY
+          echo "- **Self-heal:** Drift from desired state is automatically corrected" >> $GITHUB_STEP_SUMMARY
+          echo "- **Prune:** Removed resources are automatically deleted" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Access URLs" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | URL |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| ArgoCD | https://${ARGOCD_URL} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Control Center | https://controlcenter.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Schema Registry | https://schemaregistry.${APPS_DOMAIN} |" >> $GITHUB_STEP_SUMMARY
