@@ -78,6 +78,21 @@ ArgoCD uses SSH to access this private repository. Setup steps:
 
 4. **Delete local keys:** `rm argocd-deploy-key argocd-deploy-key.pub`
 
+## Namespace Architecture
+
+Following Confluent best practices, this deployment uses separate namespaces:
+
+| Namespace | Purpose | Contents |
+|-----------|---------|----------|
+| `confluent-operator` | Control Plane | CFK Operator pod |
+| `confluent` | Data Plane | Kafka, KRaft, Schema Registry, Connect, ksqlDB, Control Center, REST Proxy |
+
+**Benefits:**
+- Security isolation with different RBAC policies
+- Independent lifecycle management for operator upgrades
+- Reduced blast radius if workload issues occur
+- Better compliance and auditing
+
 ## Workflow Details
 
 ### 01-provision-rosa.yaml
@@ -136,7 +151,8 @@ Deploys Confluent for Kubernetes (CFK) operator via ArgoCD.
 
 **Features:**
 - CFK 3.1.1 (Helm chart 0.1351.59)
-- Deployed to `confluent` namespace
+- Deployed to `confluent-operator` namespace (best practice: separate control plane)
+- Manages resources in `confluent` namespace
 - GitOps managed with auto-sync and self-heal
 
 ### 05-deploy-confluent-platform.yaml
@@ -223,7 +239,7 @@ Total: ~$15-20 for a day of testing
 - Check ArgoCD application logs
 
 ### Components stuck in "Provisioning"
-- Check operator logs: `oc logs -n confluent -l app=confluent-operator`
+- Check operator logs: `oc logs -n confluent-operator -l app=confluent-operator`
 - Verify node resources: `oc describe nodes`
 - Check events: `oc get events -n confluent --sort-by='.lastTimestamp'`
 

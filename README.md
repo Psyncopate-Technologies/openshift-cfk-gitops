@@ -18,33 +18,41 @@ This project deploys Confluent Platform 8.1.1 on a ROSA (Red Hat OpenShift Servi
 ┌─────────────────────────────────────────────────────────────────┐
 │                         AWS Account                              │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │                    ROSA Cluster                          │   │
-│  │  ┌─────────────────────────────────────────────────┐    │   │
-│  │  │              confluent namespace                 │    │   │
-│  │  │  ┌───────────┐ ┌───────────┐ ┌───────────┐     │    │   │
-│  │  │  │  KRaft    │ │   Kafka   │ │  Schema   │     │    │   │
-│  │  │  │Controller │ │  Brokers  │ │ Registry  │     │    │   │
-│  │  │  └───────────┘ └───────────┘ └───────────┘     │    │   │
-│  │  │  ┌───────────┐ ┌───────────┐ ┌───────────┐     │    │   │
-│  │  │  │  Connect  │ │  ksqlDB   │ │  Control  │     │    │   │
-│  │  │  │           │ │           │ │  Center   │     │    │   │
-│  │  │  └───────────┘ └───────────┘ └───────────┘     │    │   │
-│  │  └─────────────────────────────────────────────────┘    │   │
+│  │                      ROSA Cluster                        │   │
+│  │  ┌──────────────────────┐  ┌────────────────────────┐   │   │
+│  │  │ confluent-operator   │  │     confluent ns       │   │   │
+│  │  │ namespace            │  │  ┌──────┐ ┌──────┐    │   │   │
+│  │  │ ┌──────────────────┐ │  │  │KRaft │ │Kafka │    │   │   │
+│  │  │ │  CFK Operator    │─┼──┼─▶│Ctrl  │ │Broker│    │   │   │
+│  │  │ │  (Control Plane) │ │  │  └──────┘ └──────┘    │   │   │
+│  │  │ └──────────────────┘ │  │  ┌──────┐ ┌──────┐    │   │   │
+│  │  └──────────────────────┘  │  │Schema│ │ksqlDB│    │   │   │
+│  │                            │  │  Reg │ │      │    │   │   │
+│  │                            │  └──────┘ └──────┘    │   │   │
+│  │                            │  ┌──────┐ ┌──────┐    │   │   │
+│  │                            │  │Connect│ │ C3  │    │   │   │
+│  │                            │  └──────┘ └──────┘    │   │   │
+│  │                            └────────────────────────┘   │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+**Namespace Separation (Best Practice):**
+- `confluent-operator` - CFK Operator (control plane)
+- `confluent` - Confluent Platform components (data plane)
+
 ## Components
 
-| Component | Version | Replicas |
-|-----------|---------|----------|
-| KRaft Controller | 8.1.1 | 3 |
-| Kafka | 8.1.1 | 3 |
-| Schema Registry | 8.1.1 | 1 |
-| Connect | 8.1.1 | 1 |
-| ksqlDB | 8.1.1 | 1 |
-| Control Center | 8.1.1 | 1 |
-| REST Proxy | 8.1.1 | 1 |
+| Component | Version | Replicas | Namespace |
+|-----------|---------|----------|-----------|
+| CFK Operator | 3.1.1 | 1 | confluent-operator |
+| KRaft Controller | 8.1.1 | 3 | confluent |
+| Kafka | 8.1.1 | 3 | confluent |
+| Schema Registry | 8.1.1 | 1 | confluent |
+| Connect | 8.1.1 | 1 | confluent |
+| ksqlDB | 8.1.1 | 1 | confluent |
+| Control Center | Next-Gen 2.3.1 | 1 | confluent |
+| REST Proxy | 8.1.1 | 1 | confluent |
 
 ## Quick Start
 
@@ -223,6 +231,29 @@ openshift-cfk-gitops/
 | Dev (3x m5.xlarge, multi AZ) | ~$0.85 | ~$20 |
 
 **Important:** Run the deprovision workflow when done testing to stop AWS charges!
+
+## TLS Configuration
+
+All Confluent Platform components use TLS for secure communication. The workflow generates:
+
+1. **CA Certificate** - Self-signed CA stored in `ca-pair-sslcerts` secret
+2. **Wildcard Certificate** - Single certificate with SANs for:
+   - `*.{env}.confluent.psyncopate.io` (external access)
+   - `*.confluent.svc.cluster.local` (internal cluster access)
+   - Individual service names (kafka, schemaregistry, etc.)
+
+**Per-component TLS secrets:**
+| Secret | Component |
+|--------|-----------|
+| `kafka-tls` | Kafka brokers |
+| `kraftcontroller-tls` | KRaft controllers |
+| `schemaregistry-tls` | Schema Registry |
+| `connect-tls` | Kafka Connect |
+| `ksqldb-tls` | ksqlDB |
+| `controlcenter-tls` | Control Center |
+| `kafkarestproxy-tls` | REST Proxy |
+
+This approach ensures proper SNI validation for all components, including the next-gen Control Center which uses Jetty 12.
 
 ## Custom Domain Setup
 
