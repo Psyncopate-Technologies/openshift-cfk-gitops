@@ -6,7 +6,7 @@ on:
       cluster_name:
         description: 'ROSA cluster name'
         required: true
-        default: 'cfk-test'
+        default: 'cfk-dev'
       deploy_operator:
         description: 'Deploy CFK Operator via ArgoCD'
         required: true
