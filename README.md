@@ -91,6 +91,42 @@ Run workflows in order via GitHub Actions:
 - Visual dashboard for deployment status
 - Rollback capabilities
 
+## How ArgoCD Manages Components
+
+When using ArgoCD (Option B), there are two ArgoCD Applications:
+
+| Application | Source | What It Manages |
+|-------------|--------|-----------------|
+| `cfk-operator` | Confluent Helm repo | CFK Operator deployment |
+| `confluent-platform` | This Git repo (`env/dev/confluent-platform/`) | Confluent Platform CRDs |
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         ArgoCD                                   │
+│  ┌─────────────────────┐    ┌─────────────────────────────┐    │
+│  │  cfk-operator App   │    │  confluent-platform App     │    │
+│  │  (Helm Chart)       │    │  (Git Repo)                 │    │
+│  └──────────┬──────────┘    └──────────────┬──────────────┘    │
+└─────────────┼───────────────────────────────┼──────────────────┘
+              │                               │
+              ▼                               ▼
+┌─────────────────────────┐    ┌─────────────────────────────────┐
+│ confluent-operator ns   │    │        confluent ns              │
+│ ┌─────────────────────┐ │    │ ┌───────┐ ┌───────┐ ┌───────┐  │
+│ │  CFK Operator Pod   │─┼────┼▶│ Kafka │ │ KRaft │ │  ...  │  │
+│ │  (reconciles CRDs)  │ │    │ │ Pods  │ │ Pods  │ │       │  │
+│ └─────────────────────┘ │    │ └───────┘ └───────┘ └───────┘  │
+└─────────────────────────┘    └─────────────────────────────────┘
+```
+
+**Key Points:**
+- ArgoCD manages the **CFK Operator** via Helm chart
+- ArgoCD manages the **Confluent Platform CRDs** (Kafka, KRaftController, etc.) from this Git repo
+- The **CFK Operator** reconciles CRDs into actual Pods, StatefulSets, and Services
+- Changing `kafka.yaml` in Git → ArgoCD syncs → CFK Operator updates Kafka pods
+
 **When done testing:**
 - **99-deprovision-rosa** - Destroy cluster (stops charges!)
 
