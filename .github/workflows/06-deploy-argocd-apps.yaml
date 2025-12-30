@@ -77,21 +77,23 @@ jobs:
 
       - name: Deploy AppProject
         run: |
-          oc apply -f env/dev/argocd/appproject.yaml
+          # Update namespace in appproject if needed and apply
+          sed 's/namespace: argocd/namespace: openshift-gitops/g' env/dev/argocd/appproject.yaml | oc apply -f -
 
       - name: Deploy CFK Operator Application
         if: ${{ github.event.inputs.deploy_operator == 'true' }}
         run: |
           echo "Deploying CFK Operator via ArgoCD..."
-          oc apply -f env/dev/argocd/cfk-operator-app.yaml
+          # Update namespace in application if needed and apply
+          sed 's/namespace: argocd/namespace: openshift-gitops/g' env/dev/argocd/cfk-operator-app.yaml | oc apply -f -
 
           echo "Waiting for CFK Operator to sync..."
           sleep 30
 
           # Wait for sync
           for i in {1..30}; do
-            STATUS=$(oc get application cfk-operator -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
-            HEALTH=$(oc get application cfk-operator -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
+            STATUS=$(oc get application cfk-operator -n openshift-gitops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
+            HEALTH=$(oc get application cfk-operator -n openshift-gitops -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
             echo "CFK Operator - Sync: $STATUS, Health: $HEALTH (attempt $i/30)"
             if [ "$STATUS" == "Synced" ] && [ "$HEALTH" == "Healthy" ]; then
               echo "CFK Operator is synced and healthy!"
@@ -110,15 +112,16 @@ jobs:
         if: ${{ github.event.inputs.deploy_platform == 'true' }}
         run: |
           echo "Deploying Confluent Platform via ArgoCD..."
-          oc apply -f env/dev/argocd/confluent-platform-app.yaml
+          # Update namespace in application if needed and apply
+          sed 's/namespace: argocd/namespace: openshift-gitops/g' env/dev/argocd/confluent-platform-app.yaml | oc apply -f -
 
           echo "Waiting for initial sync..."
           sleep 30
 
           # Wait for sync
           for i in {1..30}; do
-            STATUS=$(oc get application confluent-platform -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
-            HEALTH=$(oc get application confluent-platform -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
+            STATUS=$(oc get application confluent-platform -n openshift-gitops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
+            HEALTH=$(oc get application confluent-platform -n openshift-gitops -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
             echo "Confluent Platform - Sync: $STATUS, Health: $HEALTH (attempt $i/30)"
             if [ "$STATUS" == "Synced" ]; then
               echo "Confluent Platform is synced!"
@@ -130,15 +133,15 @@ jobs:
       - name: Verify ArgoCD Applications
         run: |
           echo "=== ArgoCD Applications ==="
-          oc get applications -n argocd
+          oc get applications -n openshift-gitops
           echo ""
           echo "=== Application Details ==="
-          oc get applications -n argocd -o wide
+          oc get applications -n openshift-gitops -o wide
 
       - name: Generate Summary
         run: |
           CUSTOM_DOMAIN="dev.confluent.psyncopate.io"
-          ARGOCD_URL=$(oc get route argocd-server -n argocd -o jsonpath='{.spec.host}' 2>/dev/null || echo "N/A")
+          ARGOCD_URL=$(oc get route openshift-gitops-server -n openshift-gitops -o jsonpath='{.spec.host}' 2>/dev/null || echo "N/A")
 
           echo "## ArgoCD Applications Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -151,14 +154,14 @@ jobs:
           echo "|-------------|-------------|--------|" >> $GITHUB_STEP_SUMMARY
 
           if [ "${{ github.event.inputs.deploy_operator }}" == "true" ]; then
-            SYNC=$(oc get application cfk-operator -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "N/A")
-            HEALTH=$(oc get application cfk-operator -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "N/A")
+            SYNC=$(oc get application cfk-operator -n openshift-gitops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "N/A")
+            HEALTH=$(oc get application cfk-operator -n openshift-gitops -o jsonpath='{.status.health.status}' 2>/dev/null || echo "N/A")
             echo "| cfk-operator | ${SYNC} | ${HEALTH} |" >> $GITHUB_STEP_SUMMARY
           fi
 
           if [ "${{ github.event.inputs.deploy_platform }}" == "true" ]; then
-            SYNC=$(oc get application confluent-platform -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "N/A")
-            HEALTH=$(oc get application confluent-platform -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null || echo "N/A")
+            SYNC=$(oc get application confluent-platform -n openshift-gitops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "N/A")
+            HEALTH=$(oc get application confluent-platform -n openshift-gitops -o jsonpath='{.status.health.status}' 2>/dev/null || echo "N/A")
             echo "| confluent-platform | ${SYNC} | ${HEALTH} |" >> $GITHUB_STEP_SUMMARY
           fi
 
