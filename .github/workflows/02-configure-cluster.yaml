@@ -158,6 +158,12 @@ jobs:
             -n confluent \
             --dry-run=client -o yaml | oc apply -f -
 
+          # Create the CA truststore secret with ca.crt key for dependency TLS trust
+          oc create secret generic ca-pair-sslcerts-truststore \
+            --from-file=ca.crt=/tmp/ca.pem \
+            -n confluent \
+            --dry-run=client -o yaml | oc apply -f -
+
           # Create OpenSSL config for wildcard certificate with SANs
           cat > /tmp/openssl-san.cnf << EOF
           [req]
@@ -289,6 +295,7 @@ jobs:
           echo "- SecurityContextConstraints: confluent-scc" >> $GITHUB_STEP_SUMMARY
           echo "- Secret: dockerhub-secret (image pull)" >> $GITHUB_STEP_SUMMARY
           echo "- Secret: ca-pair-sslcerts (TLS CA certificate)" >> $GITHUB_STEP_SUMMARY
+          echo "- Secret: ca-pair-sslcerts-truststore (CA for dependency trust)" >> $GITHUB_STEP_SUMMARY
           echo "- Secrets: *-tls (wildcard certificates for each component)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
