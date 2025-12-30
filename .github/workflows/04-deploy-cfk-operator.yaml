@@ -13,6 +13,11 @@ on:
           - cfk-stg
           - cfk-prd
           - cfk-dr
+      cfk_version:
+        description: 'CFK Operator Helm chart version'
+        required: true
+        type: string
+        default: '0.1351.59'
 
 env:
   AWS_REGION: us-east-1
@@ -79,8 +84,12 @@ jobs:
       - name: Deploy CFK Operator Application
         run: |
           echo "Deploying CFK Operator via ArgoCD..."
-          # Update namespace in application if needed and apply
-          sed 's/namespace: argocd/namespace: openshift-gitops/g' env/dev/argocd/cfk-operator-app.yaml | oc apply -f -
+          echo "Using CFK Helm chart version: ${{ github.event.inputs.cfk_version }}"
+
+          # Update namespace and chart version, then apply
+          sed -e 's/namespace: argocd/namespace: openshift-gitops/g' \
+              -e 's/targetRevision: .*/targetRevision: ${{ github.event.inputs.cfk_version }}/g' \
+              env/dev/argocd/cfk-operator-app.yaml | oc apply -f -
 
           echo "Waiting for CFK Operator to sync..."
           sleep 30
@@ -131,7 +140,7 @@ jobs:
           echo "### CFK Operator Details" >> $GITHUB_STEP_SUMMARY
           echo "- **Namespace:** confluent" >> $GITHUB_STEP_SUMMARY
           echo "- **Helm Chart:** confluent-for-kubernetes" >> $GITHUB_STEP_SUMMARY
-          echo "- **Chart Version:** 0.1351.59 (CFK 3.1.1)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Chart Version:** ${{ github.event.inputs.cfk_version }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
           echo "Run **05-Deploy Confluent Platform** to deploy Confluent Platform components" >> $GITHUB_STEP_SUMMARY
