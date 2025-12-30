@@ -1,21 +1,16 @@
-name: 03-Mirror Images to ECR
+name: 03-Mirror Images to ECR (Optional)
 
 on:
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Environment'
+      cluster_name:
+        description: 'ROSA cluster name'
         required: true
-        type: choice
-        options:
-          - dev
-          - staging
-          - prod
-        default: 'dev'
+        default: 'cfk-test'
       confluent_platform_version:
         description: 'Confluent Platform version'
         required: true
-        default: '8.0.1'
+        default: '7.7.1'
       cfk_operator_version:
         description: 'CFK Operator version'
         required: true
@@ -31,9 +26,8 @@ permissions:
 
 jobs:
   mirror:
-    name: Mirror Confluent Images
+    name: Mirror Confluent Images to ECR
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment }}
 
     steps:
       - name: Checkout repository
@@ -46,32 +40,40 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Download Terraform outputs
-        uses: actions/download-artifact@v4
-        with:
-          name: terraform-outputs-${{ github.event.inputs.environment }}
-          path: ./terraform-outputs
-
-      - name: Get ECR Registry URL
-        id: ecr
+      - name: Get AWS Account ID
+        id: aws
         run: |
-          ECR_REGISTRY=$(jq -r '.ecr_registry_url.value' terraform-outputs/terraform-outputs.json)
-          echo "registry=${ECR_REGISTRY}" >> $GITHUB_OUTPUT
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "account_id=${ACCOUNT_ID}" >> $GITHUB_OUTPUT
+          echo "ecr_registry=${ACCOUNT_ID}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
+
+      - name: Create ECR Repositories
+        run: |
+          REPOS="cp-server cp-schema-registry cp-kafka-connect cp-ksqldb-server cp-control-center cp-kafka-rest confluent-init-container confluent-operator"
+
+          for REPO in $REPOS; do
+            echo "Creating ECR repository: confluent/${REPO}"
+            aws ecr create-repository \
+              --repository-name "confluent/${REPO}" \
+              --image-scanning-configuration scanOnPush=true \
+              2>/dev/null || echo "Repository already exists"
+          done
 
       - name: Login to ECR
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
-            docker login --username AWS --password-stdin ${{ steps.ecr.outputs.registry }}
+            docker login --username AWS --password-stdin ${{ steps.aws.outputs.ecr_registry }}
 
-      - name: Login to Docker Hub (for rate limits)
+      - name: Login to Docker Hub (optional - for rate limits)
         if: ${{ secrets.DOCKER_HUB_USERNAME != '' }}
         run: |
           echo "${{ secrets.DOCKER_HUB_TOKEN }}" | \
             docker login --username "${{ secrets.DOCKER_HUB_USERNAME }}" --password-stdin
+        continue-on-error: true
 
       - name: Mirror Confluent Platform Images
         run: |
-          ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
+          ECR_REGISTRY="${{ steps.aws.outputs.ecr_registry }}"
           CP_VERSION="${{ github.event.inputs.confluent_platform_version }}"
           CFK_VERSION="${{ github.event.inputs.cfk_operator_version }}"
 
@@ -110,7 +112,7 @@ jobs:
 
       - name: Verify Images in ECR
         run: |
-          ECR_REGISTRY="${{ steps.ecr.outputs.registry }}"
+          ECR_REGISTRY="${{ steps.aws.outputs.ecr_registry }}"
 
           echo "Verifying images in ECR..."
           echo ""
@@ -128,8 +130,8 @@ jobs:
         run: |
           echo "## Image Mirror Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Environment:** ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
-          echo "**ECR Registry:** ${{ steps.ecr.outputs.registry }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** ${{ github.event.inputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**ECR Registry:** ${{ steps.aws.outputs.ecr_registry }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Mirrored Images" >> $GITHUB_STEP_SUMMARY
           echo "| Image | Version |" >> $GITHUB_STEP_SUMMARY
@@ -142,3 +144,7 @@ jobs:
           echo "| cp-kafka-rest | ${{ github.event.inputs.confluent_platform_version }} |" >> $GITHUB_STEP_SUMMARY
           echo "| confluent-init-container | ${{ github.event.inputs.cfk_operator_version }} |" >> $GITHUB_STEP_SUMMARY
           echo "| confluent-operator | ${{ github.event.inputs.cfk_operator_version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Note" >> $GITHUB_STEP_SUMMARY
+          echo "This workflow is **optional**. The default setup uses Docker Hub images directly." >> $GITHUB_STEP_SUMMARY
+          echo "Use this workflow only if you want to mirror images to your own ECR registry." >> $GITHUB_STEP_SUMMARY
