@@ -105,17 +105,17 @@ output "custom_domain" {
 
 output "dns_setup_instructions" {
   description = "DNS setup instructions for custom domain"
-  value       = var.custom_domain != "" ? <<-EOT
-    To use custom domain ${var.custom_domain}:
-
-    Create a wildcard CNAME record:
-    *.${var.custom_domain} -> *.apps.${module.rosa_cluster.domain}
-
-    Access URLs after DNS setup:
-    - Control Center: https://controlcenter.${var.custom_domain}
-    - Schema Registry: https://schemaregistry.${var.custom_domain}
-    - Connect: https://connect.${var.custom_domain}
-    - ksqlDB: https://ksqldb.${var.custom_domain}
-    - REST Proxy: https://kafkarestproxy.${var.custom_domain}
-  EOT : "No custom domain configured. Access services via OpenShift routes."
+  value = var.custom_domain != "" ? join("\n", [
+    "To use custom domain ${var.custom_domain}:",
+    "",
+    "Create a wildcard CNAME record:",
+    "*.${var.custom_domain} -> *.apps.${module.rosa_cluster.domain}",
+    "",
+    "Access URLs after DNS setup:",
+    "- Control Center: https://controlcenter.${var.custom_domain}",
+    "- Schema Registry: https://schemaregistry.${var.custom_domain}",
+    "- Connect: https://connect.${var.custom_domain}",
+    "- ksqlDB: https://ksqldb.${var.custom_domain}",
+    "- REST Proxy: https://kafkarestproxy.${var.custom_domain}"
+  ]) : "No custom domain configured. Access services via OpenShift routes."
 }
