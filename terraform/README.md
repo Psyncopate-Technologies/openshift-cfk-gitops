@@ -37,10 +37,29 @@ terraform/
 ## Prerequisites
 
 1. **AWS CLI** configured with appropriate credentials
-2. **Terraform** >= 1.0.0
+2. **Terraform** >= 1.11.0
 3. **Red Hat Cloud Services Token** from [cloud.redhat.com](https://cloud.redhat.com/openshift/token/rosa)
 4. **S3 Bucket** for Terraform state (create before first use)
-5. **DynamoDB Table** for state locking (optional but recommended)
+
+### GitHub Secrets Required
+
+| Secret | Description |
+|--------|-------------|
+| `AWS_ACCESS_KEY_ID` | AWS access key |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key |
+| `RHCS_TOKEN` | Red Hat Cloud Services offline token |
+| `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password (see requirements below) |
+
+### Admin Password Requirements
+
+The `OPENSHIFT_ADMIN_PASSWORD` must meet these requirements:
+- At least **14 characters** long
+- Contains **uppercase** letters (A-Z)
+- Contains **lowercase** letters (a-z)
+- Contains **numbers or symbols** (0-9, !@#$%^&*)
+- **ASCII characters only**
+
+Example: `MyClusterAdmin123!`
 
 ### Create State Backend
 
@@ -52,15 +71,9 @@ aws s3 mb s3://psyncopate-terraform-state --region us-east-1
 aws s3api put-bucket-versioning \
   --bucket psyncopate-terraform-state \
   --versioning-configuration Status=Enabled
-
-# Create DynamoDB table for locking
-aws dynamodb create-table \
-  --table-name terraform-locks \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST \
-  --region us-east-1
 ```
+
+> **Note:** State locking uses S3's native locking feature (`use_lockfile = true`), so no DynamoDB table is required.
 
 ## Quick Start
 
