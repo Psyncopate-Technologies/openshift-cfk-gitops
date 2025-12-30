@@ -106,7 +106,7 @@ jobs:
         if: ${{ github.event.inputs.deploy_operator == 'true' }}
         run: |
           oc adm policy add-scc-to-user confluent-scc \
-            system:serviceaccount:confluent-operator:confluent-for-kubernetes || true
+            system:serviceaccount:confluent:confluent-for-kubernetes || true
 
       - name: Deploy Confluent Platform Application
         if: ${{ github.event.inputs.deploy_platform == 'true' }}

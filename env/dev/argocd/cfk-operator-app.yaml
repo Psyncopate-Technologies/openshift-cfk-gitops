@@ -22,7 +22,7 @@ spec:
           - confluent
   destination:
     server: https://kubernetes.default.svc
-    namespace: confluent-operator
+    namespace: confluent
   syncPolicy:
     automated:
       prune: true

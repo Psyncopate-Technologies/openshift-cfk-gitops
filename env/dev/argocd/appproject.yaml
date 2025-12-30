@@ -13,8 +13,6 @@ spec:
   destinations:
     - namespace: confluent
       server: https://kubernetes.default.svc
-    - namespace: confluent-operator
-      server: https://kubernetes.default.svc
   clusterResourceWhitelist:
     - group: ''
       kind: Namespace
