@@ -33,3 +33,4 @@ spec:
       bootstrapEndpoint: kafka.confluent.svc.cluster.local:9071
       tls:
         enabled: true
+        secretRef: ca-pair-sslcerts

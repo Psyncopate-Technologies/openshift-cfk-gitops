@@ -34,20 +34,24 @@ spec:
       bootstrapEndpoint: kafka.confluent.svc.cluster.local:9071
       tls:
         enabled: true
+        secretRef: ca-pair-sslcerts
     schemaRegistry:
       url: https://schemaregistry.confluent.svc.cluster.local:8081
       tls:
         enabled: true
+        secretRef: ca-pair-sslcerts
     connect:
       - name: connect
         url: https://connect.confluent.svc.cluster.local:8083
         tls:
           enabled: true
+          secretRef: ca-pair-sslcerts
     ksqldb:
       - name: ksqldb
         url: https://ksqldb.confluent.svc.cluster.local:8088
         tls:
           enabled: true
+          secretRef: ca-pair-sslcerts
   configOverrides:
     server:
       - confluent.controlcenter.internal.topics.replication=3
