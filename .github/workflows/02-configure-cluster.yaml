@@ -136,9 +136,12 @@ jobs:
 
           echo "Docker Hub image pull secrets created"
 
-      - name: Create CA Certificate for TLS
+      - name: Create CA and Wildcard Certificates for TLS
         run: |
-          # Generate CA certificate for CFK auto-generated TLS certificates
+          # Set the custom domain based on environment
+          CUSTOM_DOMAIN="${{ github.event.inputs.environment }}.confluent.psyncopate.io"
+
+          # Generate CA certificate
           openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
             -keyout /tmp/ca-key.pem \
             -out /tmp/ca.pem \
@@ -151,10 +154,84 @@ jobs:
             -n confluent \
             --dry-run=client -o yaml | oc apply -f -
 
-          # Clean up temporary files
-          rm -f /tmp/ca-key.pem /tmp/ca.pem
+          # Create OpenSSL config for wildcard certificate with SANs
+          cat > /tmp/openssl-san.cnf << EOF
+          [req]
+          distinguished_name = req_distinguished_name
+          req_extensions = v3_req
+          prompt = no
 
-          echo "CA certificate secret created for TLS"
+          [req_distinguished_name]
+          C = US
+          O = Confluent
+          CN = *.${CUSTOM_DOMAIN}
+
+          [v3_req]
+          keyUsage = keyEncipherment, dataEncipherment, digitalSignature
+          extendedKeyUsage = serverAuth, clientAuth
+          subjectAltName = @alt_names
+
+          [alt_names]
+          DNS.1 = *.${CUSTOM_DOMAIN}
+          DNS.2 = *.confluent.svc.cluster.local
+          DNS.3 = *.confluent
+          DNS.4 = kafka
+          DNS.5 = kafka.confluent.svc.cluster.local
+          DNS.6 = schemaregistry
+          DNS.7 = schemaregistry.confluent.svc.cluster.local
+          DNS.8 = connect
+          DNS.9 = connect.confluent.svc.cluster.local
+          DNS.10 = ksqldb
+          DNS.11 = ksqldb.confluent.svc.cluster.local
+          DNS.12 = controlcenter
+          DNS.13 = controlcenter.confluent.svc.cluster.local
+          DNS.14 = kafkarestproxy
+          DNS.15 = kafkarestproxy.confluent.svc.cluster.local
+          DNS.16 = kraftcontroller
+          DNS.17 = kraftcontroller.confluent.svc.cluster.local
+          EOF
+
+          # Generate wildcard certificate private key
+          openssl genrsa -out /tmp/wildcard-key.pem 2048
+
+          # Generate CSR
+          openssl req -new -key /tmp/wildcard-key.pem \
+            -out /tmp/wildcard.csr \
+            -config /tmp/openssl-san.cnf
+
+          # Sign the certificate with our CA
+          openssl x509 -req -in /tmp/wildcard.csr \
+            -CA /tmp/ca.pem -CAkey /tmp/ca-key.pem \
+            -CAcreateserial \
+            -out /tmp/wildcard.pem \
+            -days 365 \
+            -extensions v3_req \
+            -extfile /tmp/openssl-san.cnf
+
+          # Create fullchain (cert + CA)
+          cat /tmp/wildcard.pem /tmp/ca.pem > /tmp/fullchain.pem
+
+          # Create TLS secrets for each component using the wildcard certificate
+          for component in kafka kraftcontroller schemaregistry connect ksqldb controlcenter kafkarestproxy; do
+            oc create secret tls ${component}-tls \
+              --cert=/tmp/fullchain.pem \
+              --key=/tmp/wildcard-key.pem \
+              -n confluent \
+              --dry-run=client -o yaml | oc apply -f -
+            echo "Created TLS secret: ${component}-tls"
+          done
+
+          # Verify the certificate SANs
+          echo ""
+          echo "Wildcard certificate SANs:"
+          openssl x509 -in /tmp/wildcard.pem -text -noout | grep -A1 "Subject Alternative Name"
+
+          # Clean up temporary files
+          rm -f /tmp/ca-key.pem /tmp/ca.pem /tmp/wildcard-key.pem /tmp/wildcard.pem \
+                /tmp/wildcard.csr /tmp/fullchain.pem /tmp/openssl-san.cnf /tmp/ca.srl
+
+          echo ""
+          echo "CA and wildcard certificates created for TLS"
 
       - name: Save Cluster Configuration
         run: |
@@ -188,7 +265,7 @@ jobs:
           oc get scc confluent-scc
           echo ""
           echo "Secrets in confluent namespace:"
-          oc get secrets -n confluent | grep -E "dockerhub-secret|ca-pair-sslcerts"
+          oc get secrets -n confluent | grep -E "dockerhub-secret|ca-pair-sslcerts|tls"
           echo ""
           echo "Secrets in confluent-operator namespace:"
           oc get secrets -n confluent-operator | grep -E "dockerhub-secret"
@@ -208,6 +285,7 @@ jobs:
           echo "- SecurityContextConstraints: confluent-scc" >> $GITHUB_STEP_SUMMARY
           echo "- Secret: dockerhub-secret (image pull)" >> $GITHUB_STEP_SUMMARY
           echo "- Secret: ca-pair-sslcerts (TLS CA certificate)" >> $GITHUB_STEP_SUMMARY
+          echo "- Secrets: *-tls (wildcard certificates for each component)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
           echo "Run **06-Deploy CFK Operator** workflow" >> $GITHUB_STEP_SUMMARY

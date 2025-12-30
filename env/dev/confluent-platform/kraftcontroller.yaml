@@ -35,6 +35,8 @@ spec:
                     values:
                       - kraftcontroller
               topologyKey: topology.kubernetes.io/zone
+  tls:
+    secretRef: kraftcontroller-tls
   configOverrides:
     server:
       - controller.quorum.election.timeout.ms=5000
