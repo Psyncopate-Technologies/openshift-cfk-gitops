@@ -6,7 +6,13 @@ on:
       cluster_name:
         description: 'ROSA cluster name'
         required: true
+        type: choice
         default: 'cfk-dev'
+        options:
+          - cfk-dev
+          - cfk-stg
+          - cfk-prd
+          - cfk-dr
 
 env:
   AWS_REGION: us-east-1
@@ -146,6 +152,25 @@ jobs:
 
           echo "ArgoCD application controller granted cluster-admin permissions"
 
+      - name: Configure GitHub Repository Credentials (SSH)
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.ARGOCD_SSH_PRIVATE_KEY }}
+        run: |
+          echo "Creating GitHub repository credentials for ArgoCD (SSH)..."
+
+          # Create a secret for ArgoCD to access the private GitHub repository via SSH
+          oc create secret generic github-repo-creds \
+            --from-literal=type=git \
+            --from-literal=url=git@github.com:Psyncopate-Technologies/openshift-cfk-gitops.git \
+            --from-literal=sshPrivateKey="$SSH_PRIVATE_KEY" \
+            -n openshift-gitops \
+            --dry-run=client -o yaml | oc apply -f -
+
+          # Label the secret so ArgoCD recognizes it as a repository credential
+          oc label secret github-repo-creds argocd.argoproj.io/secret-type=repository -n openshift-gitops --overwrite
+
+          echo "GitHub repository credentials configured for ArgoCD (SSH)"
+
       - name: Create Custom Domain Route for ArgoCD
         run: |
           # Determine custom domain based on cluster name
@@ -223,3 +248,11 @@ jobs:
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
           echo "1. Access ArgoCD UI at the Custom Domain URL above" >> $GITHUB_STEP_SUMMARY
           echo "2. Run **04-Deploy CFK Operator** to deploy the operator via GitOps" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Required GitHub Secret" >> $GITHUB_STEP_SUMMARY
+          echo "This workflow requires an \`ARGOCD_SSH_PRIVATE_KEY\` secret containing an SSH private key for ArgoCD to access the private repository." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Setup steps:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Generate SSH key: \`ssh-keygen -t ed25519 -C \"argocd-deploy-key\" -f argocd-deploy-key -N \"\"\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Add public key as Deploy Key in GitHub repo settings" >> $GITHUB_STEP_SUMMARY
+          echo "3. Add private key as \`ARGOCD_SSH_PRIVATE_KEY\` in repository secrets" >> $GITHUB_STEP_SUMMARY

@@ -55,6 +55,28 @@ Configure these secrets in your GitHub repository (Settings > Secrets > Actions)
 | `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password | Created by workflow 01 |
 | `DOCKERHUB_USERNAME` | Docker Hub username | For pulling images |
 | `DOCKERHUB_TOKEN` | Docker Hub access token | Docker Hub settings |
+| `ARGOCD_SSH_PRIVATE_KEY` | SSH private key for ArgoCD | See setup below |
+
+### Setting Up SSH Deploy Key for ArgoCD
+
+ArgoCD uses SSH to access this private repository. Setup steps:
+
+1. **Generate SSH key pair:**
+   ```bash
+   ssh-keygen -t ed25519 -C "argocd-deploy-key" -f argocd-deploy-key -N ""
+   ```
+
+2. **Add public key as Deploy Key:**
+   - Repository → Settings → Deploy keys → Add deploy key
+   - Title: `ArgoCD Deploy Key`
+   - Key: Contents of `argocd-deploy-key.pub`
+
+3. **Add private key as GitHub Secret:**
+   - Repository → Settings → Secrets → Actions → New secret
+   - Name: `ARGOCD_SSH_PRIVATE_KEY`
+   - Value: Contents of `argocd-deploy-key`
+
+4. **Delete local keys:** `rm argocd-deploy-key argocd-deploy-key.pub`
 
 ## Workflow Details
 
@@ -83,12 +105,18 @@ Configures the cluster for Confluent Platform.
 
 ### 03-install-argocd.yaml
 
-Installs OpenShift GitOps (ArgoCD) operator.
+Installs OpenShift GitOps (ArgoCD) operator and configures repository access.
 
 **Features:**
 - Installs via OpenShift GitOps Operator (Red Hat supported)
+- Configures SSH credentials for private repository access
+- Grants ArgoCD cluster-admin permissions
 - Creates custom domain route for ArgoCD
-- Auto-configures ArgoCD instance
+
+**SSH Repository Access:**
+- Uses `ARGOCD_SSH_PRIVATE_KEY` secret
+- Creates Kubernetes secret labeled `argocd.argoproj.io/secret-type=repository`
+- Repo URL: `git@github.com:Psyncopate-Technologies/openshift-cfk-gitops.git`
 
 **Access:**
 - URL: `https://argocd.<custom-domain>`

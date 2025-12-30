@@ -64,8 +64,36 @@ This project deploys Confluent Platform 8.1.1 on a ROSA (Red Hat OpenShift Servi
 | `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password (created by workflow 01) |
 | `DOCKERHUB_USERNAME` | Docker Hub username (for image pulls) |
 | `DOCKERHUB_TOKEN` | Docker Hub access token ([Create token](https://hub.docker.com/settings/security)) |
+| `ARGOCD_SSH_PRIVATE_KEY` | SSH private key for ArgoCD to access this repo (see below) |
 
 > **Note:** Docker Hub credentials are required to avoid rate limits when pulling Confluent Platform images. Create a free Docker Hub account if you don't have one.
+
+### Setting Up SSH Deploy Key for ArgoCD
+
+ArgoCD requires SSH credentials to access this private repository. Follow these steps:
+
+1. **Generate an SSH key pair:**
+   ```bash
+   ssh-keygen -t ed25519 -C "argocd-deploy-key" -f argocd-deploy-key -N ""
+   ```
+
+2. **Add public key as Deploy Key:**
+   - Go to this repository → Settings → Deploy keys
+   - Click "Add deploy key"
+   - Title: `ArgoCD Deploy Key`
+   - Key: Contents of `argocd-deploy-key.pub`
+   - Leave "Allow write access" unchecked
+
+3. **Add private key as GitHub Secret:**
+   - Go to this repository → Settings → Secrets → Actions
+   - Click "New repository secret"
+   - Name: `ARGOCD_SSH_PRIVATE_KEY`
+   - Value: Entire contents of `argocd-deploy-key` (including BEGIN/END lines)
+
+4. **Delete local key files:**
+   ```bash
+   rm argocd-deploy-key argocd-deploy-key.pub
+   ```
 
 ### Deployment Options
 
@@ -96,21 +124,15 @@ Choose one method to provision your ROSA cluster:
 
 See [terraform/README.md](terraform/README.md) for Terraform-specific documentation.
 
-#### Option A: Direct Deployment (Simple)
+#### GitOps Deployment (Recommended)
 
 Run workflows in order via GitHub Actions:
 
-1. **01-provision-rosa** (or **01-provision-rosa-terraform**) - Create ROSA cluster (~40 min)
+1. **01-provision-rosa** - Create ROSA cluster (~40 min)
 2. **02-configure-cluster** - Configure namespaces and SCCs (~2 min)
-3. **03-deploy-cfk-operator** - Install CFK Operator (~5 min)
-4. **04-deploy-confluent-platform** - Deploy all components (~15 min)
-
-#### Option B: GitOps with ArgoCD (Recommended for Production)
-
-1. **01-provision-rosa** (or **01-provision-rosa-terraform**) - Create ROSA cluster (~40 min)
-2. **02-configure-cluster** - Configure namespaces and SCCs (~2 min)
-3. **05-install-argocd** - Install ArgoCD (~5 min)
-4. **06-deploy-argocd-apps** - Deploy via ArgoCD (~10 min)
+3. **03-install-argocd** - Install ArgoCD and configure SSH credentials (~5 min)
+4. **04-deploy-cfk-operator** - Deploy CFK Operator via ArgoCD (~5 min)
+5. **05-deploy-confluent-platform** - Deploy all components via ArgoCD (~15 min)
 
 **ArgoCD Benefits:**
 - Automatic sync when you push changes to git
@@ -120,7 +142,7 @@ Run workflows in order via GitHub Actions:
 
 ## How ArgoCD Manages Components
 
-When using ArgoCD (Option B), there are two ArgoCD Applications:
+There are two ArgoCD Applications:
 
 | Application | Source | What It Manages |
 |-------------|--------|-----------------|
@@ -164,14 +186,12 @@ See [.github/workflows/README.md](.github/workflows/README.md) for detailed work
 ```
 openshift-cfk-gitops/
 ├── .github/workflows/              # GitHub Actions workflows
-│   ├── 01-provision-rosa.yaml      # CLI-based provisioning
-│   ├── 01-provision-rosa-terraform.yaml  # Terraform provisioning
-│   ├── 02-configure-cluster.yaml
-│   ├── 03-deploy-cfk-operator.yaml
-│   ├── 04-deploy-confluent-platform.yaml
-│   ├── 05-install-argocd.yaml
-│   ├── 06-deploy-argocd-apps.yaml
-│   ├── 99-deprovision-rosa.yaml
+│   ├── 01-provision-rosa.yaml      # Terraform-based provisioning
+│   ├── 02-configure-cluster.yaml   # Namespace, SCC, secrets setup
+│   ├── 03-install-argocd.yaml      # Install ArgoCD + SSH credentials
+│   ├── 04-deploy-cfk-operator.yaml # Deploy CFK via ArgoCD
+│   ├── 05-deploy-confluent-platform.yaml  # Deploy CP via ArgoCD
+│   ├── 99-deprovision-rosa.yaml    # Destroy cluster
 │   └── README.md
 ├── terraform/                      # Terraform configuration
 │   ├── main.tf                     # ROSA cluster resources
@@ -187,6 +207,9 @@ openshift-cfk-gitops/
 ├── env/
 │   └── dev/
 │       ├── argocd/                 # ArgoCD Application manifests
+│       │   ├── appproject.yaml     # ArgoCD AppProject
+│       │   ├── cfk-operator-app.yaml      # CFK Operator Application
+│       │   └── confluent-platform-app.yaml # CP Application (SSH repo)
 │       ├── cluster-config/         # Namespace and SCC definitions
 │       └── confluent-platform/     # Confluent Platform manifests
 └── docs/                           # Documentation
