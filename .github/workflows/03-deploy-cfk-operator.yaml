@@ -1,4 +1,4 @@
-name: 06-Deploy CFK Operator
+name: 03-Deploy CFK Operator
 
 on:
   workflow_dispatch:

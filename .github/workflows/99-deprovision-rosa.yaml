@@ -1,4 +1,4 @@
-name: 100-Deprovision ROSA Cluster
+name: 99-Deprovision ROSA Cluster
 
 on:
   workflow_dispatch:

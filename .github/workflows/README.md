@@ -8,13 +8,13 @@ This directory contains the GitHub Actions workflows for deploying and managing 
 
 For a cost-effective test cluster (~$15-20/day), run these workflows in order:
 
-1. **00-provision-rosa.yaml** - Create ROSA cluster (~35-45 min)
+1. **01-provision-rosa.yaml** - Create ROSA cluster (~35-45 min)
 2. **02-configure-cluster.yaml** - Configure namespaces and SCCs
-3. **06-deploy-cfk-operator.yaml** - Install CFK Operator
-4. **08-deploy-confluent-platform.yaml** - Deploy Confluent Platform
+3. **03-deploy-cfk-operator.yaml** - Install CFK Operator
+4. **04-deploy-confluent-platform.yaml** - Deploy Confluent Platform
 
 **When done testing, run:**
-- **100-deprovision-rosa.yaml** - Destroy cluster (stops charges!)
+- **99-deprovision-rosa.yaml** - Destroy cluster (stops charges!)
 
 ## Workflow Execution Order
 
@@ -22,16 +22,16 @@ For a cost-effective test cluster (~$15-20/day), run these workflows in order:
 
 | # | Workflow | Description | Duration |
 |---|----------|-------------|----------|
-| 00 | **provision-rosa** | Create ROSA cluster | ~40 min |
+| 01 | **provision-rosa** | Create ROSA cluster | ~40 min |
 | 02 | **configure-cluster** | Namespaces, SCCs | ~2 min |
-| 06 | **deploy-cfk-operator** | CFK Operator via Helm | ~5 min |
-| 08 | **deploy-confluent-platform** | All CP components | ~15 min |
+| 03 | **deploy-cfk-operator** | CFK Operator via Helm | ~5 min |
+| 04 | **deploy-confluent-platform** | All CP components | ~15 min |
 
 ### Destroy (When Done)
 
 | # | Workflow | Description |
 |---|----------|-------------|
-| 100 | **deprovision-rosa** | Delete ROSA cluster and cleanup |
+| 99 | **deprovision-rosa** | Delete ROSA cluster and cleanup |
 
 ## Required GitHub Secrets
 
@@ -42,7 +42,7 @@ Configure these secrets in your GitHub repository (Settings > Secrets > Actions)
 | `AWS_ACCESS_KEY_ID` | AWS access key | AWS IAM Console |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key | AWS IAM Console |
 | `RHCS_TOKEN` | Red Hat Cloud Services token | [Get Token](https://cloud.redhat.com/openshift/token/rosa) |
-| `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password | Created by workflow 00 |
+| `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password | Created by workflow 01 |
 
 ### Getting the Secrets
 
@@ -58,13 +58,13 @@ Configure these secrets in your GitHub repository (Settings > Secrets > Actions)
 3. Copy the token value
 
 #### OpenShift Admin Password
-1. Run workflow **00-provision-rosa**
+1. Run workflow **01-provision-rosa**
 2. Check the workflow logs for the `rosa create admin` output
 3. Copy the password and add it as `OPENSHIFT_ADMIN_PASSWORD` secret
 
 ## Workflow Details
 
-### 00-provision-rosa.yaml
+### 01-provision-rosa.yaml
 Creates a new ROSA cluster using the ROSA CLI.
 
 **Inputs:**
@@ -89,14 +89,14 @@ Configures the cluster for Confluent Platform.
 - `confluent-scc` SecurityContextConstraints
 - Grants SCCs to service accounts
 
-### 06-deploy-cfk-operator.yaml
+### 03-deploy-cfk-operator.yaml
 Installs Confluent for Kubernetes operator via Helm.
 
 **Inputs:**
 - `cluster_name`: ROSA cluster name
 - `cfk_version`: Helm chart version (default: 0.921.20)
 
-### 08-deploy-confluent-platform.yaml
+### 04-deploy-confluent-platform.yaml
 Deploys all Confluent Platform components.
 
 **Components deployed:**
@@ -108,7 +108,7 @@ Deploys all Confluent Platform components.
 - Control Center (1 replica)
 - REST Proxy (1 replica)
 
-### 100-deprovision-rosa.yaml
+### 99-deprovision-rosa.yaml
 Destroys the ROSA cluster and cleans up AWS resources.
 
 **Inputs:**
@@ -126,10 +126,10 @@ Destroys the ROSA cluster and cleans up AWS resources.
 
 ### Example Testing Session
 ```
-Morning:  Run 00-provision-rosa (~$0.50)
-          Run 02, 06, 08 workflows
+Morning:  Run 01-provision-rosa (~$0.50)
+          Run 02, 03, 04 workflows
           Test for 4 hours (~$2.60)
-Evening:  Run 100-deprovision-rosa
+Evening:  Run 99-deprovision-rosa
 
 Total: ~$3-4 for a day of testing
 ```
