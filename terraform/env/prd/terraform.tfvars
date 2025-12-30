@@ -8,7 +8,7 @@ environment = "prd"
 cluster_name = "cfk-prd"
 
 # OpenShift version
-openshift_version = "4.16.0"
+openshift_version = "4.20.0"
 
 # AWS region (primary production region)
 aws_region = "us-east-1"

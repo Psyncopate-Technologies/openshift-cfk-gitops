@@ -8,7 +8,7 @@ environment = "dev"
 cluster_name = "cfk-dev"
 
 # OpenShift version
-openshift_version = "4.16.0"
+openshift_version = "4.20.0"
 
 # AWS region
 aws_region = "us-east-1"
