@@ -24,17 +24,44 @@ rosa list clusters
 
 ### OpenShift Login Fails
 
-**Symptom:** Workflow fails at "Login to OpenShift" step
+**Symptom:** Workflow fails at "Login to OpenShift" step, or CLI returns 401 Unauthorized
 
 **Causes:**
-1. `OPENSHIFT_ADMIN_PASSWORD` secret not set
+1. `OPENSHIFT_ADMIN_PASSWORD` secret not set or incorrect
 2. Cluster not ready
 3. API endpoint not accessible
+4. Admin user credentials out of sync
+5. Old cluster context in kubeconfig
 
 **Solution:**
-1. Check workflow 01 logs for admin password
-2. Add/update `OPENSHIFT_ADMIN_PASSWORD` secret
-3. Verify cluster state is "ready"
+1. Verify cluster state is "ready":
+   ```bash
+   rosa describe cluster -c <cluster-name>
+   ```
+
+2. Check if using correct API URL (cluster domain may have changed):
+   ```bash
+   rosa describe cluster -c <cluster-name> | grep "API URL"
+   ```
+
+3. If login still fails with 401, reset the admin user:
+   ```bash
+   # Login to ROSA first
+   rosa login --token="$RHCS_TOKEN"
+
+   # Delete existing admin
+   rosa delete admin -c <cluster-name> -y
+
+   # Create new admin (outputs new password)
+   rosa create admin -c <cluster-name>
+   ```
+
+4. Wait 2-3 minutes for authentication to propagate, then login:
+   ```bash
+   oc login <API_URL> --username cluster-admin --password <NEW_PASSWORD> --insecure-skip-tls-verify
+   ```
+
+5. **Important:** Update the `OPENSHIFT_ADMIN_PASSWORD` GitHub secret with the new password for future workflow runs.
 
 ### ROSA Cluster Creation Fails
 
@@ -44,6 +71,7 @@ rosa list clusters
 1. AWS quota exceeded
 2. Invalid RHCS token
 3. Account roles not created
+4. Legal terms not accepted
 
 **Solution:**
 ```bash
@@ -57,6 +85,28 @@ rosa whoami
 # Check account roles
 rosa list account-roles
 ```
+
+### "Legal terms should be agreed" Error
+
+**Symptom:** Terraform fails with error code `CLUSTERS-MGMT-451: Legal terms should be agreed`
+
+**Cause:** Red Hat requires accepting terms and conditions before creating ROSA clusters.
+
+**Solution:**
+
+1. **Via Web Console:**
+   - Go to: https://console.redhat.com/openshift/create/rosa/getstarted
+   - Log in with your Red Hat account
+   - Accept all terms and conditions
+
+2. **Via CLI:**
+   ```bash
+   rosa login --token="$RHCS_TOKEN"
+   rosa init
+   ```
+   When prompted, accept the terms.
+
+3. Re-run the Terraform workflow with `action: apply`
 
 ## Cluster Configuration Issues
 
