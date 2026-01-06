@@ -24,10 +24,33 @@ rosa describe cluster --cluster=<name>
 rosa logs install --cluster=<name> --watch
 ```
 
+### Getting Started & Prerequisites
+
+```bash
+# Get RHCS (Red Hat Cloud Services) Token
+# Visit: https://console.redhat.com/openshift/token/rosa
+# Click "Load token" and copy the token
+
+# Agree to Red Hat Terms and Conditions (required before creating clusters)
+# Visit: https://console.redhat.com/openshift
+# Or direct link: https://www.redhat.com/wapps/tnc/termsack?event=signTerms&tab=active&site=ocm&cls=ocm
+
+# Verify terms are accepted
+rosa verify quota
+# If you see "terms not signed" error, visit the links above
+
+# Initialize ROSA (first-time setup)
+rosa init
+
+# Verify all prerequisites
+rosa verify permissions
+rosa verify quota
+```
+
 ### Account & Authentication
 
 ```bash
-# Login to ROSA
+# Login to ROSA with token from https://console.redhat.com/openshift/token/rosa
 rosa login --token=<token>
 
 # Verify credentials
