@@ -80,8 +80,6 @@ spec:
           jwksEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/discovery/v2.0/keys
           tokenEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/oauth2/v2.0/token
           scope: api://b10fe602-4b8f-4e9f-bcd9-15eb961e7fae/.default
-      sso:
-        enabled: true
   configOverrides:
     server:
       - confluent.controlcenter.internal.topics.replication=3
