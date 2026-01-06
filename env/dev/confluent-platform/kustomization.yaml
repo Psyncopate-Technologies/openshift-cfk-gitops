@@ -4,6 +4,18 @@ kind: Kustomization
 namespace: confluent
 
 resources:
+  # OAuth Secrets
+  - secrets/kafka-oauth-secret.yaml
+  - secrets/kafka-oauth-secret-oidc.yaml
+  - secrets/kraft-oauth-secret.yaml
+  - secrets/c3-oauth-secret.yaml
+  - secrets/c3-sso-secret.yaml
+  - secrets/sr-oauth-secret.yaml
+  - secrets/connect-oauth-secret.yaml
+  - secrets/ksqldb-oauth-secret.yaml
+  - secrets/restproxy-oauth-secret.yaml
+  - secrets/mds-token.yaml
+  # Confluent Platform Components
   - kraftcontroller.yaml
   - kafka.yaml
   - schemaregistry.yaml
