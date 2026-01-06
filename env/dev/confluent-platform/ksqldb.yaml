@@ -43,7 +43,7 @@ spec:
         oauthSettings:
           groupsClaimName: groups
           subClaimName: sub
-          audience: b10fe602-4b8f-4e9f-bcd9-15eb961e7fae
+          audience: api://b10fe602-4b8f-4e9f-bcd9-15eb961e7fae
           expectedIssuer: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/v2.0
           jwksEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/discovery/v2.0/keys
           tokenEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/oauth2/v2.0/token
@@ -65,7 +65,7 @@ spec:
         oauthSettings:
           groupsClaimName: groups
           subClaimName: sub
-          audience: b10fe602-4b8f-4e9f-bcd9-15eb961e7fae
+          audience: api://b10fe602-4b8f-4e9f-bcd9-15eb961e7fae
           expectedIssuer: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/v2.0
           jwksEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/discovery/v2.0/keys
           tokenEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/oauth2/v2.0/token
