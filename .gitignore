@@ -18,7 +18,9 @@ terraform.rc
 *.crt
 *.jks
 !env/dev/clients/*.jks
+!env/dev/confluent-platform/certs/*.pem
 *secret*
+!env/dev/confluent-platform/secrets/
 credentials.json
 .env
 .env.*
@@ -39,6 +41,9 @@ Thumbs.db
 kubeconfig
 *.kubeconfig
 .kube/
+
+# Example configs (not for production)
+env/dev/example/
 
 # Build artifacts
 /dist/
