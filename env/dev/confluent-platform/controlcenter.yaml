@@ -31,18 +31,6 @@ spec:
       domain: dev.confluent.psyncopate.io
   authorization:
     type: rbac
-  authentication:
-    type: oauth
-    oauth:
-      secretRef: c3-oauth-secret
-      configurations:
-        groupsClaimName: groups
-        subClaimName: sub
-        audience: api://6fda129c-e62a-468d-903e-73f68f1403f8
-        expectedIssuer: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/v2.0
-        jwksEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/discovery/v2.0/keys
-        tokenEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/oauth2/v2.0/token
-        scope: openid profile email
   dependencies:
     kafka:
       bootstrapEndpoint: kafka.confluent.svc.cluster.local:9071
