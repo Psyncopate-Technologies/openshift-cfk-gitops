@@ -314,11 +314,16 @@ The domain pattern supports multiple environments:
 
 ## Documentation
 
-- [Workflow Documentation](.github/workflows/README.md)
-- [Prerequisites](docs/PREREQUISITES.md)
-- [Deployment Guide](docs/DEPLOYMENT.md)
-- [Cost Optimization](docs/COST-OPTIMIZATION.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Documentation Index](docs/README.md) - Overview of all documentation
+- [Workflow Documentation](.github/workflows/README.md) - GitHub Actions workflows
+- [Terraform Documentation](terraform/README.md) - Infrastructure as Code
+- [Prerequisites](docs/PREREQUISITES.md) - Required accounts and setup
+- [Deployment Guide](docs/DEPLOYMENT.md) - Step-by-step deployment
+- [Existing Cluster Setup](docs/EXISTING-CLUSTER-SETUP.md) - Deploy to existing cluster
+- [Cost Optimization](docs/COST-OPTIMIZATION.md) - Cost management strategies
+- [Minimal ROSA Guide](docs/MINIMAL-ROSA-GUIDE.md) - Cost-effective testing setup
+- [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
+- [ROSA & OC Cheatsheet](docs/ROSA-OC-CHEATSHEET.md) - CLI command reference
 
 ## License
 
