@@ -16,6 +16,8 @@ terraform.rc
 *.pem
 *.key
 *.crt
+*.jks
+!env/dev/clients/*.jks
 *secret*
 credentials.json
 .env
