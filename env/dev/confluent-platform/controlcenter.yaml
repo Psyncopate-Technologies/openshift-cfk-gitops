@@ -6,7 +6,7 @@ metadata:
 spec:
   replicas: 1
   image:
-    application: confluentinc/cp-enterprise-control-center-next-gen:2.3.1
+    application: confluentinc/cp-enterprise-control-center:8.1.1
     init: confluentinc/confluent-init-container:3.1.1
     pullSecretRef:
       - dockerhub-secret
@@ -29,25 +29,11 @@ spec:
     type: route
     route:
       domain: dev.confluent.psyncopate.io
-  authorization:
-    type: rbac
   dependencies:
     kafka:
       bootstrapEndpoint: kafka.confluent.svc.cluster.local:9071
       tls:
         enabled: true
-      authentication:
-        type: oauth
-        jaasConfig:
-          secretRef: c3-oauth-secret
-        oauthSettings:
-          groupsClaimName: groups
-          subClaimName: sub
-          audience: api://b10fe602-4b8f-4e9f-bcd9-15eb961e7fae
-          expectedIssuer: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/v2.0
-          jwksEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/discovery/v2.0/keys
-          tokenEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/oauth2/v2.0/token
-          scope: api://b10fe602-4b8f-4e9f-bcd9-15eb961e7fae/.default
     schemaRegistry:
       url: https://schemaregistry.confluent.svc.cluster.local:8081
       tls:
@@ -62,42 +48,9 @@ spec:
         url: https://ksqldb.confluent.svc.cluster.local:8088
         tls:
           enabled: true
-    mds:
-      endpoint: https://kafka.confluent.svc.cluster.local:8090
-      tls:
-        enabled: true
-      tokenKeyPair:
-        secretRef: mds-token
-      authentication:
-        type: oauth
-        jaasConfig:
-          secretRef: c3-oauth-secret
-        oauthSettings:
-          groupsClaimName: groups
-          subClaimName: sub
-          audience: api://b10fe602-4b8f-4e9f-bcd9-15eb961e7fae
-          expectedIssuer: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/v2.0
-          jwksEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/discovery/v2.0/keys
-          tokenEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/oauth2/v2.0/token
-          scope: api://b10fe602-4b8f-4e9f-bcd9-15eb961e7fae/.default
   configOverrides:
     server:
       - confluent.controlcenter.internal.topics.replication=3
       - confluent.controlcenter.command.topic.replication=3
       - confluent.metrics.topic.replication=3
       - confluent.controlcenter.ui.autoupdate.enable=true
-      - confluent.controlcenter.rest.sni.host.check.enabled=false
-      # SSO/OIDC Configuration for Azure EntraID
-      - confluent.controlcenter.rest.authentication.method=BEARER
-      - confluent.controlcenter.auth.bearer.issuer=https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/v2.0
-      - confluent.controlcenter.auth.bearer.jwks.uri=https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/discovery/v2.0/keys
-      - confluent.controlcenter.auth.session.expiration.ms=600000
-      - confluent.controlcenter.auth.sso.enabled=true
-      - confluent.controlcenter.auth.sso.oidc.issuer=https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/v2.0
-      - confluent.controlcenter.auth.sso.oidc.authorize.uri=https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/oauth2/v2.0/authorize
-      - confluent.controlcenter.auth.sso.oidc.token.uri=https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/oauth2/v2.0/token
-      - confluent.controlcenter.auth.sso.oidc.jwks.uri=https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/discovery/v2.0/keys
-      - confluent.controlcenter.auth.sso.oidc.client.id=6fda129c-e62a-468d-903e-73f68f1403f8
-      - confluent.controlcenter.auth.sso.oidc.client.secret=${file:/mnt/secrets/c3-sso-secret/oidcClientSecret}
-      - confluent.controlcenter.auth.sso.oidc.scope=openid profile email
-      - confluent.controlcenter.auth.sso.oidc.callback.uri=https://controlcenter.dev.confluent.psyncopate.io/api/metadata/security/1.0/oidc/callback
