@@ -28,40 +28,8 @@ spec:
     type: route
     route:
       domain: dev.confluent.psyncopate.io
-  authorization:
-    type: rbac
   dependencies:
     kafka:
       bootstrapEndpoint: kafka.confluent.svc.cluster.local:9071
       tls:
         enabled: true
-      authentication:
-        type: oauth
-        jaasConfig:
-          secretRef: sr-oauth-secret
-        oauthSettings:
-          groupsClaimName: groups
-          subClaimName: sub
-          audience: api://b10fe602-4b8f-4e9f-bcd9-15eb961e7fae
-          expectedIssuer: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/v2.0
-          jwksEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/discovery/v2.0/keys
-          tokenEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/oauth2/v2.0/token
-          scope: api://b10fe602-4b8f-4e9f-bcd9-15eb961e7fae/.default
-    mds:
-      endpoint: https://kafka.confluent.svc.cluster.local:8090
-      tls:
-        enabled: true
-      tokenKeyPair:
-        secretRef: mds-token
-      authentication:
-        type: oauth
-        jaasConfig:
-          secretRef: sr-oauth-secret
-        oauthSettings:
-          groupsClaimName: groups
-          subClaimName: sub
-          audience: api://b10fe602-4b8f-4e9f-bcd9-15eb961e7fae
-          expectedIssuer: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/v2.0
-          jwksEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/discovery/v2.0/keys
-          tokenEndpointUri: https://login.microsoftonline.com/1b9dca15-4db4-4905-8725-d318d11c6875/oauth2/v2.0/token
-          scope: api://b10fe602-4b8f-4e9f-bcd9-15eb961e7fae/.default
