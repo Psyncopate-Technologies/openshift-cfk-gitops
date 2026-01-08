@@ -1,0 +1,112 @@
+Workstreams and Tasks,Task Type,Priority,Owner,Customer Responsible,Status,Start date,End date,Target End Date,Blockers,Deliverable,Notes
+Planning and Prerequisites,Workstream,,,,,,,,,,,
+Provide OpenShift cluster access (kubeconfig or login credentials),Task,High,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Cluster Access Provided,Kafka Admin needs oc login access
+Provide cluster API URL and console URL,Task,High,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,URLs Documented,For CLI and UI access
+Create confluent namespace,Task,High,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Namespace Created,Data plane for Confluent components
+Create confluent-operator namespace,Task,High,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Namespace Created,Control plane for CFK operator
+Apply confluent-scc SecurityContextConstraints,Task,High,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,SCC Applied,Custom SCC for Confluent pods
+Grant SCC to Confluent service accounts,Task,High,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,SCC Granted,"kafka, connect, ksqldb, controlcenter, schemaregistry, kafkarestproxy, kraftcontroller"
+Create Docker Hub pull secret (dockerhub-secret),Task,Medium,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Secret Created,For pulling Confluent images
+Link pull secret to default service account,Task,Medium,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Secret Linked,oc secrets link default dockerhub-secret --for=pull
+Configure firewall - Allow Docker Hub access,Task,High,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Firewall Rule Added,Outbound to index.docker.io:443
+Configure firewall - Allow Okta OAuth endpoints,Task,High,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Firewall Rule Added,Outbound HTTPS to *.okta.com
+Configure firewall - Allow Confluent Helm repo,Task,Medium,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Firewall Rule Added,Outbound to packages.confluent.io
+Provision persistent storage class,Task,High,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Storage Class Ready,For Kafka and KRaft data volumes
+Ensure sufficient node resources,Task,High,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Capacity Verified,"Min: 3 nodes, 4 CPU, 16GB RAM each"
+Create custom domain DNS zone,Task,High,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,DNS Zone Created,"e.g., *.dev.confluent.<domain>"
+Create wildcard CNAME DNS record,Task,High,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,DNS Record Created,Point to *.apps.<cluster-domain>
+Install ArgoCD/OpenShift GitOps (if using GitOps),Task,Medium,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,ArgoCD Installed,Optional - for GitOps deployment
+Install OpenShift CLI (oc) on workstation,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,CLI Installed,For cluster management
+Install Helm 3 CLI on workstation,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Helm Installed,For CFK operator deployment
+Verify cluster access with oc login,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Access Verified,oc whoami and oc get nodes
+Verify namespace access,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Access Verified,oc get pods -n confluent
+OAuth/OIDC Configuration,Workstream,,,,,,,,,,,
+Create OAuth application in Okta,Task,High,IdP Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,OAuth App Created,For Confluent Platform authentication
+Create Okta authorization server,Task,High,IdP Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Auth Server Created,Custom auth server for Confluent
+Configure OAuth audience,Task,High,IdP Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Audience Configured,e.g. api://confluent
+Configure OAuth scopes,Task,High,IdP Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Scopes Configured,e.g. confluent scope
+Configure claims mapping (groups/sub/email),Task,High,IdP Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Claims Configured,"groups, sub, email claims"
+Create Okta groups for RBAC,Task,High,IdP Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Groups Created,Map to Confluent roles (admin/developer/reader)
+Provide OAuth client ID,Task,High,IdP Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Client ID Provided,For oauth-jass secret
+Provide OAuth client secret,Task,High,IdP Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Client Secret Provided,For oauth-jass secret
+Provide OAuth endpoints URLs,Task,High,IdP Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,URLs Provided,"tokenEndpointUri, jwksEndpointUri, issuer"
+Provide OIDC client credentials (for SSO),Task,Medium,IdP Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,OIDC Creds Provided,For Control Center SSO login
+Document OAuth configuration details,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Config Documented,Consolidate all OAuth settings
+CFK Operator Deployment,Workstream,,,,,,,,,,,
+Add Confluent Helm repository,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Repo Added,helm repo add confluentinc https://packages.confluent.io/helm
+Update Helm repositories,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Repos Updated,helm repo update
+Install CFK Operator via Helm,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Operator Installed,CFK 3.1.1 in confluent-operator namespace
+Configure CFK for multi-namespace management,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Operator Configured,"namespaced=false, namespaceList={confluent}"
+Verify CFK Operator pod is running,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Operator Running,oc get pods -n confluent-operator
+Verify CFK CRDs are installed,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,CRDs Verified,oc get crds | grep confluent
+Grant SCC to CFK operator service account,Task,High,Infra Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,SCC Granted,confluent-operator SA in confluent-operator ns
+TLS and Secrets Configuration,Workstream,,,,,,,,,,,
+Generate CA key and certificate,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,CA Generated,For auto-generated component certs
+Create ca-pair-sslcerts secret,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Secret Created,TLS CA secret in confluent namespace
+Download OAuth provider certificate chain,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Certs Downloaded,Okta certificate chain
+Download DigiCert Root CA certificate,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Root CA Downloaded,Required for full chain trust
+Create JKS truststore with OAuth CA certs,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Truststore Created,Include root + intermediate CA
+Create oauth-truststore secret,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Secret Created,Mount truststore.jks in pods
+Create oauth-jass secret,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Secret Created,OAuth client credentials (clientId/clientSecret)
+Create oauth-jass-oidc secret (for SSO),Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Secret Created,OIDC credentials for Control Center SSO
+Generate MDS token key pair,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Key Pair Generated,RSA key pair for MDS tokens
+Create mds-token secret,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Secret Created,tokenKeypair secret
+Create custom TLS certificates (if required),Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Certs Created,With SANs for external domain access
+Create tls-certs secret (if using custom certs),Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Secret Created,Custom TLS certificates
+Confluent Platform Deployment,Workstream,,,,,,,,,,,
+Configure KRaft Controller YAML,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,YAML Ready,"3 replicas, OAuth, TLS"
+Deploy KRaft Controller,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,KRaft Running,oc apply -f kraftcontroller.yaml
+Verify KRaft Controller quorum,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Quorum Healthy,3/3 controllers ready
+Configure Kafka Broker YAML,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,YAML Ready,"3 replicas, OAuth, TLS, MDS, external access"
+Configure mountedVolumes for oauth-truststore,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Volumes Configured,Mount truststore to /mnt/oauth-truststore
+Configure configOverrides.jvm for truststore,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,JVM Configured,-Djavax.net.ssl.trustStore settings
+Configure Kafka RBAC superUsers,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,SuperUsers Set,OAuth client ID as superUser
+Deploy Kafka Brokers,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Kafka Running,oc apply -f kafka.yaml
+Verify Kafka cluster health,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Cluster Healthy,3/3 brokers RUNNING
+Configure Schema Registry YAML,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,YAML Ready,"OAuth, TLS, MDS dependency"
+Deploy Schema Registry,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,SR Running,oc apply -f schemaregistry.yaml
+Configure Kafka Connect YAML,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,YAML Ready,"OAuth, TLS, truststore, MDS"
+Deploy Kafka Connect,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Connect Running,oc apply -f connect.yaml
+Configure ksqlDB YAML,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,YAML Ready,"OAuth, TLS, MDS"
+Deploy ksqlDB,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,ksqlDB Running,oc apply -f ksqldb.yaml
+Configure Control Center YAML,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,YAML Ready,"OAuth, TLS, SSO, truststore"
+Configure Control Center SNI settings,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,SNI Configured,sni.host.check.enabled=false for external access
+Deploy Control Center,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,C3 Running,oc apply -f controlcenter.yaml
+Configure REST Proxy YAML,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,YAML Ready,"OAuth, TLS"
+Deploy REST Proxy,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,REST Proxy Running,oc apply -f kafkarestproxy.yaml
+Verify all components show RUNNING status,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,All Running,"oc get kafka,connect,controlcenter -n confluent"
+RBAC Configuration,Workstream,,,,,,,,,,,
+Create ConfluentRolebinding for cluster admin,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Rolebinding Created,ClusterAdmin role for admin group
+Create ConfluentRolebinding for developers,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Rolebinding Created,DeveloperRead/Write roles
+Create ConfluentRolebinding for operators,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Rolebinding Created,Operator role for Kafka team
+Test RBAC with different user groups,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,RBAC Verified,Verify access controls work
+Application Integrations,Workstream,,,,,,,,,,,
+Create Kafka topics for applications,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Topics Created,Via Control Center or CLI
+Configure topic partitions and replication,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Topics Configured,Based on throughput requirements
+Document external Kafka bootstrap servers,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Config Documented,kafka.dev.confluent.<domain>:443
+Document client OAuth configuration,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Config Documented,"SASL_SSL, OAUTHBEARER settings"
+Document Schema Registry URL,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,URL Documented,https://schemaregistry.dev.confluent.<domain>
+Document Connect REST API URL,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,URL Documented,https://connect.dev.confluent.<domain>
+Document Control Center URL,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,URL Documented,https://controlcenter.dev.confluent.<domain>
+Deploy and configure Kafka connectors,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Connectors Deployed,Per application requirements
+Create ksqlDB streams/tables,Task,Low,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Streams Created,Stream processing definitions
+Testing and Validation,Workstream,,,,,,,,,,,
+Test Kafka produce/consume internally,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Test Passed,From within cluster
+Test Kafka produce/consume externally,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Test Passed,Via external bootstrap
+Test OAuth authentication flow,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Test Passed,Token acquisition and validation
+Test Control Center SSO login,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Test Passed,OIDC login via Okta
+Test Schema Registry functionality,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Test Passed,Schema registration/retrieval
+Test TLS encryption end-to-end,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Test Passed,Certificate validation
+Test RBAC authorization,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Test Passed,Role-based access control
+Test Connect REST API,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Test Passed,Connector CRUD operations
+Test ksqlDB queries,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Test Passed,Run sample queries
+Test rolling restart procedures,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Test Passed,Zero-downtime restarts
+Test broker failover,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Test Passed,Pod failure recovery
+Verify monitoring metrics,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Metrics Verified,JMX/Prometheus metrics available
+Documentation and Handover,Workstream,,,,,,,,,,,
+Document deployment architecture,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Doc Created,Component diagram and networking
+Document operational runbook,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Runbook Created,"Start, stop, restart procedures"
+Document troubleshooting guide,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Guide Created,Common issues and solutions
+Document backup/recovery procedures,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Doc Created,Data protection strategy
+Document scaling procedures,Task,Medium,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,Doc Created,Horizontal and vertical scaling
+Conduct knowledge transfer session,Task,High,Kafka Team,Customer,,m/d/yyyy,m/d/yyyy,m/d/yyyy,,KT Completed,Train customer operations team
