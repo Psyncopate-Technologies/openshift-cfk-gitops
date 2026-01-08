@@ -6,7 +6,7 @@ metadata:
 spec:
   principal:
     type: user
-    name: 00uybxsfm79jtyhvS697   # Okta USER ID (sub claim)
+    name: aadmassu@psyncopate.com   # Okta email (SSO subClaimName: email)
   role: SystemAdmin
   kafkaRestClassRef:
     name: default
