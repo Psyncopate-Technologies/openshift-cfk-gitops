@@ -47,10 +47,12 @@ spec:
           scope: confluent
       tls:
         enabled: true
+        secretRef: tls-certs
     mds:
       endpoint: https://kafka.confluent.svc.cluster.local:8090
       tls:
         enabled: true
+        secretRef: tls-certs
       tokenKeyPair:
         secretRef: mds-token
       authentication:
