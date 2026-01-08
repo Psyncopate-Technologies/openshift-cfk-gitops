@@ -46,10 +46,12 @@ spec:
           scope: confluent
       tls:
         enabled: true
+        secretRef: tls-certs
     schemaRegistry:
       url: https://schemaregistry.confluent.svc.cluster.local:8081
       tls:
         enabled: true
+        secretRef: tls-certs
   configOverrides:
     server:
       - ksql.streams.replication.factor=3

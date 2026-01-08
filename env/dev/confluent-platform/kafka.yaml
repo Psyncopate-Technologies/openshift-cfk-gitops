@@ -124,6 +124,7 @@ spec:
             scope: confluent
         tls:
           enabled: true
+          secretRef: tls-certs
     kafkaRest:
       authentication:
         type: oauth
@@ -139,11 +140,13 @@ spec:
           scope: confluent
       tls:
         enabled: true
+        secretRef: tls-certs
   metricReporter:
     enabled: true
     bootstrapEndpoint: kafka.confluent.svc.cluster.local:9071
     tls:
       enabled: true
+      secretRef: tls-certs
     authentication:
       type: oauth
       jaasConfig:
