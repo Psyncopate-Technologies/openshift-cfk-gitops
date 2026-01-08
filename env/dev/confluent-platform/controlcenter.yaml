@@ -11,6 +11,8 @@ spec:
     pullSecretRef:
       - dockerhub-secret
   dataVolumeCapacity: 10Gi
+  mountedSecrets:
+    - secretRef: oauth-truststore
   podTemplate:
     resources:
       requests:
@@ -23,6 +25,9 @@ spec:
       fsGroup: 1000
       runAsUser: 1000
       runAsNonRoot: true
+    env:
+      - name: KAFKA_OPTS
+        value: "-Djavax.net.ssl.trustStore=/mnt/secrets/oauth-truststore/truststore.jks -Djavax.net.ssl.trustStorePassword=changeit"
   authorization:
     type: rbac
   tls:
