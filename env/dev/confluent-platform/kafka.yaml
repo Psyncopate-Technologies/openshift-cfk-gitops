@@ -186,6 +186,14 @@ spec:
       - confluent.metrics.reporter.sasl.oauthbearer.expected.issuer=https://integrator-9299379.okta.com/oauth2/ausycetmnaDzitHrI697
       - confluent.metrics.reporter.sasl.oauthbearer.scope=confluent
 
+      # ---- License client (CRITICAL) ----
+      - confluent.license.security.protocol=SASL_SSL
+      - confluent.license.sasl.mechanism=OAUTHBEARER
+      - confluent.license.sasl.oauthbearer.token.endpoint.url=https://integrator-9299379.okta.com/oauth2/ausycetmnaDzitHrI697/v1/token
+      - confluent.license.sasl.oauthbearer.jwks.endpoint.url=https://integrator-9299379.okta.com/oauth2/ausycetmnaDzitHrI697/v1/keys
+      - confluent.license.sasl.oauthbearer.expected.issuer=https://integrator-9299379.okta.com/oauth2/ausycetmnaDzitHrI697
+      - confluent.license.sasl.oauthbearer.scope=confluent
+
     jvm:
       - "-Djavax.net.ssl.trustStoreType=JKS"
       - "-Djavax.net.ssl.trustStore=/mnt/oauth-truststore/truststore.jks"
