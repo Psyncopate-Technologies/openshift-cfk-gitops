@@ -1,0 +1,27 @@
+apiVersion: platform.confluent.io/v1beta1
+kind: FlinkApplication
+metadata:
+  name: flink-app
+  namespace: confluent
+spec:
+  flinkEnvironment: flink-dev
+  image: confluentinc/cp-flink:1.19.1-cp1
+  flinkVersion: v1_19
+  serviceAccount: flink
+  cmfRestClassRef:
+    name: cmf-dev
+    namespace: confluent
+  jobManager:
+    resource:
+      memory: 1024m
+      cpu: 1
+  taskManager:
+    resource:
+      memory: 1024m
+      cpu: 1
+  job:
+    jarURI: local:///opt/flink/examples/streaming/StateMachineExample.jar
+    entryClass: org.apache.flink.streaming.examples.statemachine.StateMachineExample
+    parallelism: 1
+    state: running
+    upgradeMode: stateless

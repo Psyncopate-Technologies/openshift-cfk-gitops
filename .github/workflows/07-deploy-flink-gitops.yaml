@@ -1,0 +1,140 @@
+name: 07-Deploy Flink (GitOps)
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_name:
+        description: 'ROSA cluster name'
+        required: true
+        type: choice
+        default: 'cfk-dev'
+        options:
+          - cfk-dev
+          - cfk-stg
+          - cfk-prd
+          - cfk-dr
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy Flink Resources via ArgoCD
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install ROSA CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz
+          tar -xzf rosa-linux.tar.gz
+          sudo mv rosa /usr/local/bin/
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+
+      - name: Login to ROSA
+        run: |
+          rosa login --token="${{ secrets.RHCS_TOKEN }}"
+
+      - name: Get Cluster Info
+        id: cluster
+        run: |
+          rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" --output json > cluster-info.json
+          API_URL=$(jq -r '.api.url' cluster-info.json)
+          echo "api_url=${API_URL}" >> $GITHUB_OUTPUT
+
+      - name: Login to OpenShift
+        run: |
+          oc login "${{ steps.cluster.outputs.api_url }}" \
+            --username=cluster-admin \
+            --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            --insecure-skip-tls-verify=true
+
+      - name: Verify CFK Operator is Running
+        run: |
+          if ! oc get deployment confluent-operator -n confluent-operator -o name 2>/dev/null | grep -q deployment; then
+            echo "ERROR: CFK Operator is not deployed. Please run '04-Deploy CFK Operator' first."
+            exit 1
+          fi
+
+      - name: Verify Flink Infra prereqs from workflow 06
+        run: |
+          oc -n confluent get secret cmf-day2-tls >/dev/null
+          oc -n confluent get configmap cmf-keystore cmf-truststore >/dev/null
+          echo "Found cmf-day2-tls + cmf-keystore/cmf-truststore in confluent namespace."
+
+      - name: Deploy AppProject
+        run: |
+          sed 's/namespace: argocd/namespace: openshift-gitops/g' env/dev/argocd/appproject.yaml | oc apply -f -
+
+      - name: Deploy Flink Application (ArgoCD)
+        run: |
+          set -euo pipefail
+
+          echo "Deploying Flink GitOps app via ArgoCD..."
+          sed 's/namespace: argocd/namespace: openshift-gitops/g' env/dev/argocd/flink-app.yaml | oc apply -f -
+
+          echo "Waiting for initial sync..."
+          sleep 30
+
+          SYNCED="false"
+          for i in {1..30}; do
+            STATUS=$(oc get application flink -n openshift-gitops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "Unknown")
+            HEALTH=$(oc get application flink -n openshift-gitops -o jsonpath='{.status.health.status}' 2>/dev/null || echo "Unknown")
+            echo "Flink - Sync: $STATUS, Health: $HEALTH (attempt $i/30)"
+            if [ "$STATUS" == "Synced" ]; then
+              SYNCED="true"
+              echo "Flink GitOps app is synced!"
+              break
+            fi
+            sleep 20
+          done
+
+          if [ "$SYNCED" != "true" ]; then
+            echo "ERROR: Flink ArgoCD Application did not reach Synced state."
+            oc get application flink -n openshift-gitops -o yaml || true
+            exit 1
+          fi
+
+      - name: Verify Flink CRs
+        run: |
+          echo "=== Flink CRs in confluent namespace ==="
+          oc get cmfrestclass -n confluent || true
+          oc get flinkenvironment -n confluent || true
+          oc get flinkapplication -n confluent || true
+
+          echo ""
+          echo "=== Flink pods in flink namespace (if app creates JM/TM) ==="
+          oc get pods -n flink || true
+
+      - name: Generate Summary
+        run: |
+          ARGOCD_URL=$(oc get route openshift-gitops-server -n openshift-gitops -o jsonpath='{.spec.host}' 2>/dev/null || echo "N/A")
+
+          echo "## Flink GitOps Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** ${{ github.event.inputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**ArgoCD UI:** https://${ARGOCD_URL}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          SYNC=$(oc get application flink -n openshift-gitops -o jsonpath='{.status.sync.status}' 2>/dev/null || echo "N/A")
+          HEALTH=$(oc get application flink -n openshift-gitops -o jsonpath='{.status.health.status}' 2>/dev/null || echo "N/A")
+          echo "| Application | Sync | Health |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------------|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| flink | ${SYNC} | ${HEALTH} |" >> $GITHUB_STEP_SUMMARY

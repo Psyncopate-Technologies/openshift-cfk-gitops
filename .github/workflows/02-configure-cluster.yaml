@@ -104,6 +104,13 @@ jobs:
             name: confluent-operator
             labels:
               app.kubernetes.io/managed-by: gitops
+          ---
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: flink
+            labels:
+              app.kubernetes.io/managed-by: gitops
           EOF
 
       - name: Apply Security Context Constraints
@@ -119,6 +126,11 @@ jobs:
 
           # Grant SCC to CFK operator service account
           oc adm policy add-scc-to-user confluent-scc -z confluent-for-kubernetes -n confluent-operator 2>/dev/null || true
+
+          # Grant SCC to Flink service accounts (common defaults)
+          for sa in default; do
+            oc adm policy add-scc-to-user confluent-scc -z $sa -n flink 2>/dev/null || true
+          done
 
       - name: Create Docker Hub Image Pull Secret
         run: |
@@ -136,6 +148,14 @@ jobs:
             --docker-username="${{ secrets.DOCKER_HUB_USERNAME }}" \
             --docker-password="${{ secrets.DOCKER_HUB_TOKEN }}" \
             --namespace=confluent-operator \
+            --dry-run=client -o yaml | oc apply -f -
+
+          # Create dockerhub pull secret in flink namespace
+          oc create secret docker-registry dockerhub-secret \
+            --docker-server=https://index.docker.io/v1/ \
+            --docker-username="${{ secrets.DOCKER_HUB_USERNAME }}" \
+            --docker-password="${{ secrets.DOCKER_HUB_TOKEN }}" \
+            --namespace=flink \
             --dry-run=client -o yaml | oc apply -f -
 
           echo "Docker Hub image pull secrets created"

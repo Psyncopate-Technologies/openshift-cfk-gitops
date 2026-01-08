@@ -1,0 +1,10 @@
+apiVersion: platform.confluent.io/v1beta1
+kind: FlinkEnvironment
+metadata:
+  name: flink-dev
+  namespace: confluent
+spec:
+  kubernetesNamespace: flink
+  cmfRestClassRef:
+    name: cmf-dev
+    namespace: confluent

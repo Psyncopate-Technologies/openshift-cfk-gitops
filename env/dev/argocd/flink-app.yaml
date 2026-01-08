@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: flink
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:Psyncopate-Technologies/openshift-cfk-gitops.git
+    targetRevision: HEAD
+    path: env/dev/flink
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: confluent
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

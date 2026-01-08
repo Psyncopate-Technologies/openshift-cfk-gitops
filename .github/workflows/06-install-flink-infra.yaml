@@ -1,0 +1,322 @@
+name: 06-Install Flink Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      cluster_name:
+        description: 'ROSA cluster name'
+        required: true
+        type: choice
+        default: 'cfk-dev'
+        options:
+          - cfk-dev
+          - cfk-stg
+          - cfk-prd
+          - cfk-dr
+      cert_manager_version:
+        description: 'cert-manager version'
+        required: true
+        type: string
+        default: 'v1.18.2'
+      flink_operator_release:
+        description: 'Helm release name for Flink operator'
+        required: true
+        type: string
+        default: 'cp-flink-kubernetes-operator'
+      cmf_release:
+        description: 'Helm release name for CMF'
+        required: true
+        type: string
+        default: 'cmf'
+      tls_password:
+        description: 'Password used for keystore/truststore (JKS)'
+        required: true
+        type: string
+        default: 'allpassword'
+      ca_secret_name:
+        description: 'Existing CA secret name (created by workflow 02)'
+        required: true
+        type: string
+        default: 'ca-pair-sslcerts'
+      cmf_service_name:
+        description: 'CMF service DNS name used for server cert SAN'
+        required: true
+        type: string
+        default: 'cmf'
+
+env:
+  AWS_REGION: us-east-1
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  install:
+    name: Install Flink Infra (cert-manager, Flink Operator, CMF)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install OS dependencies (jq, keytool)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq default-jre-headless
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install ROSA CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz
+          tar -xzf rosa-linux.tar.gz
+          sudo mv rosa /usr/local/bin/
+
+      - name: Install OpenShift CLI
+        run: |
+          curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz
+          tar -xzf openshift-client-linux.tar.gz
+          sudo mv oc kubectl /usr/local/bin/
+
+      - name: Install Helm
+        run: |
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+          helm version
+
+      - name: Login to ROSA
+        run: |
+          rosa login --token="${{ secrets.RHCS_TOKEN }}"
+
+      - name: Get Cluster Info
+        id: cluster
+        run: |
+          rosa describe cluster --cluster="${{ github.event.inputs.cluster_name }}" --output json > cluster-info.json
+          API_URL=$(jq -r '.api.url' cluster-info.json)
+          echo "api_url=${API_URL}" >> $GITHUB_OUTPUT
+
+      - name: Login to OpenShift
+        run: |
+          oc login "${{ steps.cluster.outputs.api_url }}" \
+            --username=cluster-admin \
+            --password="${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
+            --insecure-skip-tls-verify=true
+
+      - name: Verify Namespaces Exist
+        run: |
+          oc get ns confluent
+          oc get ns confluent-operator
+          oc get ns flink
+
+      - name: Install cert-manager (if not present)
+        run: |
+          if oc get ns cert-manager >/dev/null 2>&1; then
+            echo "cert-manager namespace exists - skipping install"
+          else
+            echo "Installing cert-manager ${{ github.event.inputs.cert_manager_version }}"
+            kubectl apply -f "https://github.com/jetstack/cert-manager/releases/download/${{ github.event.inputs.cert_manager_version }}/cert-manager.yaml"
+          fi
+
+          echo "Waiting for cert-manager pods..."
+          oc -n cert-manager wait --for=condition=Ready pod -l app.kubernetes.io/instance=cert-manager --timeout=300s || true
+
+      - name: Add Confluent Helm repo
+        run: |
+          helm repo add confluentinc https://packages.confluent.io/helm
+          helm repo update
+
+      - name: Install Flink Kubernetes Operator (watch flink namespace)
+        run: |
+          helm upgrade --install "${{ github.event.inputs.flink_operator_release }}" \
+            confluentinc/flink-kubernetes-operator \
+            --namespace confluent \
+            --set watchNamespaces="{flink}" \
+            --set podSecurityContext.runAsUser=null \
+            --set podSecurityContext.runAsGroup=null
+
+      - name: Verify existing CA secret (from workflow 02)
+        run: |
+          oc -n confluent get secret "${{ github.event.inputs.ca_secret_name }}" >/dev/null
+          echo "Found CA secret: confluent/${{ github.event.inputs.ca_secret_name }}"
+
+      - name: Generate CMF server + CFK client certs (reuse existing CA)
+        run: |
+          set -euo pipefail
+          NS=confluent
+          CA_SECRET="${{ github.event.inputs.ca_secret_name }}"
+          SERVICE="${{ github.event.inputs.cmf_service_name }}"
+
+          oc -n $NS get secret $CA_SECRET -o jsonpath='{.data.tls\.crt}' | base64 -d > cacerts.pem
+          oc -n $NS get secret $CA_SECRET -o jsonpath='{.data.tls\.key}' | base64 -d > ca-key.pem
+
+          # CMF server cert (SANs for internal svc DNS)
+          cat > server-openssl.cnf <<EOF
+          [req]
+          distinguished_name=req
+          req_extensions=v3_req
+          prompt=no
+
+          [req_distinguished_name]
+          CN=${SERVICE}.${NS}.svc.cluster.local
+
+          [v3_req]
+          keyUsage = critical, digitalSignature, keyEncipherment
+          extendedKeyUsage = serverAuth
+          subjectAltName = @alt_names
+
+          [alt_names]
+          DNS.1 = ${SERVICE}
+          DNS.2 = ${SERVICE}.${NS}
+          DNS.3 = ${SERVICE}.${NS}.svc
+          DNS.4 = ${SERVICE}.${NS}.svc.cluster.local
+          EOF
+
+          openssl genrsa -out server-key.pem 2048
+          openssl req -new -key server-key.pem -out server.csr -config server-openssl.cnf
+          openssl x509 -req -in server.csr -CA cacerts.pem -CAkey ca-key.pem -CAcreateserial \
+            -out server.pem -days 365 -extensions v3_req -extfile server-openssl.cnf
+
+          # CFK client cert (for mTLS)
+          cat > client-openssl.cnf <<EOF
+          [req]
+          distinguished_name=req
+          req_extensions=v3_req
+          prompt=no
+
+          [req_distinguished_name]
+          CN=cfk-cmf-client
+
+          [v3_req]
+          keyUsage = critical, digitalSignature, keyEncipherment
+          extendedKeyUsage = clientAuth
+          EOF
+
+          openssl genrsa -out client-key.pem 2048
+          openssl req -new -key client-key.pem -out client.csr -config client-openssl.cnf
+          openssl x509 -req -in client.csr -CA cacerts.pem -CAkey ca-key.pem -CAcreateserial \
+            -out client.pem -days 365 -extensions v3_req -extfile client-openssl.cnf
+
+          echo "Generated server.pem/server-key.pem and client.pem/client-key.pem"
+
+      - name: Build CMF keystore.jks + truststore.jks (JKS)
+        run: |
+          set -euo pipefail
+          PASS="${{ github.event.inputs.tls_password }}"
+
+          # Server keystore
+          openssl pkcs12 -export \
+            -in server.pem -inkey server-key.pem \
+            -out server.p12 -name cmf-server \
+            -CAfile cacerts.pem -caname root \
+            -password pass:${PASS}
+
+          keytool -importkeystore \
+            -srckeystore server.p12 -srcstoretype PKCS12 -srcstorepass ${PASS} \
+            -destkeystore keystore.jks -deststorepass ${PASS}
+
+          # Truststore (CA)
+          keytool -import -trustcacerts -alias cmf-ca \
+            -file cacerts.pem -keystore truststore.jks \
+            -storepass ${PASS} -noprompt
+
+          ls -lh keystore.jks truststore.jks
+
+      - name: Create/Update CMF keystore/truststore ConfigMaps
+        run: |
+          oc -n confluent create configmap cmf-keystore --from-file=keystore.jks \
+            --dry-run=client -o yaml | oc apply -f -
+
+          oc -n confluent create configmap cmf-truststore --from-file=truststore.jks \
+            --dry-run=client -o yaml | oc apply -f -
+
+      - name: Create/Update CMF encryption key secret
+        run: |
+          openssl rand -out cmf.key 32
+          oc -n confluent create secret generic cmf-encryption-key \
+            --from-file=encryption-key=cmf.key \
+            --dry-run=client -o yaml | oc apply -f -
+
+      - name: Create/Update CFK -> CMF mTLS secret (cmf-day2-tls)
+        run: |
+          oc -n confluent create secret generic cmf-day2-tls \
+            --from-file=fullchain.pem=client.pem \
+            --from-file=privkey.pem=client-key.pem \
+            --from-file=cacerts.pem=cacerts.pem \
+            --dry-run=client -o yaml | oc apply -f -
+
+      - name: Create CMF Helm values file (mTLS + mount JKS)
+        run: |
+          cat > local.yaml <<EOF
+          cmf:
+            ssl:
+              keystore: /opt/keystore/keystore.jks
+              keystore-password: ${{ github.event.inputs.tls_password }}
+              trust-store: /opt/truststore/truststore.jks
+              trust-store-password: ${{ github.event.inputs.tls_password }}
+              client-auth: need
+            authentication:
+              type: mtls
+            k8s:
+              enabled: true
+
+          mountedVolumes:
+            volumeMounts:
+              - name: keystore
+                mountPath: /opt/keystore
+              - name: truststore
+                mountPath: /opt/truststore
+            volumes:
+              - name: keystore
+                configMap:
+                  name: cmf-keystore
+              - name: truststore
+                configMap:
+                  name: cmf-truststore
+          EOF
+
+          echo "Generated local.yaml:"
+          sed 's/keystore-password: .*/keystore-password: *******/g; s/trust-store-password: .*/trust-store-password: *******/g' local.yaml
+
+      - name: Install CMF (mTLS)
+        run: |
+          helm upgrade --install "${{ github.event.inputs.cmf_release }}" \
+            confluentinc/confluent-manager-for-apache-flink \
+            --namespace confluent \
+            -f local.yaml \
+            --set encryption.key.kubernetesSecretName=cmf-encryption-key \
+            --set encryption.key.kubernetesSecretProperty=encryption-key \
+            --set podSecurity.securityContext.runAsUser=null \
+            --set podSecurity.securityContext.fsGroup=null
+
+      - name: Verify Flink Infra
+        run: |
+          echo "=== confluent namespace pods ==="
+          oc get pods -n confluent
+          echo ""
+          echo "=== flink namespace pods ==="
+          oc get pods -n flink
+          echo ""
+          echo "=== CMF service ==="
+          oc get svc -n confluent | egrep -i "cmf|flink" || true
+          echo ""
+          echo "=== CMF TLS artifacts ==="
+          oc -n confluent get configmap cmf-keystore cmf-truststore
+          oc -n confluent get secret cmf-day2-tls cmf-encryption-key "${{ github.event.inputs.ca_secret_name }}"
+
+      - name: Generate Summary
+        run: |
+          echo "## Flink Infrastructure Install Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Cluster:** ${{ github.event.inputs.cluster_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**cert-manager:** ${{ github.event.inputs.cert_manager_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Flink Operator release:** ${{ github.event.inputs.flink_operator_release }}" >> $GITHUB_STEP_SUMMARY
+          echo "**CMF release:** ${{ github.event.inputs.cmf_release }}" >> $GITHUB_STEP_SUMMARY
+          echo "**CA secret reused:** confluent/${{ github.event.inputs.ca_secret_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**mTLS secret created:** confluent/cmf-day2-tls" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Next: run **07-Deploy Flink (GitOps)**" >> $GITHUB_STEP_SUMMARY
