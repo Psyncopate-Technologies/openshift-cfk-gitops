@@ -11,6 +11,14 @@ spec:
     pullSecretRef:
       - dockerhub-secret
   dataVolumeCapacity: 50Gi
+  mountedVolumes:
+    volumes:
+      - name: oauth-truststore
+        secret:
+          secretName: oauth-truststore
+    volumeMounts:
+      - name: oauth-truststore
+        mountPath: /mnt/oauth-truststore
   podTemplate:
     resources:
       requests:
@@ -84,7 +92,6 @@ spec:
         secretRef: mds-token
       provider:
         oauth:
-          enabled: true
           configurations:
             audience: api://confluent
             expectedIssuer: https://integrator-9299379.okta.com/oauth2/ausycetmnaDzitHrI697
@@ -166,3 +173,7 @@ spec:
       - min.insync.replicas=2
       - num.partitions=3
       - log.retention.hours=168
+    jvm:
+      - "-Djavax.net.ssl.trustStoreType=JKS"
+      - "-Djavax.net.ssl.trustStore=/mnt/oauth-truststore/truststore.jks"
+      - "-Djavax.net.ssl.trustStorePassword=changeit"
