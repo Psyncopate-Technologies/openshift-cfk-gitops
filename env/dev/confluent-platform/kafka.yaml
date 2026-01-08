@@ -5,12 +5,15 @@ metadata:
   namespace: confluent
 spec:
   replicas: 3
+
   image:
     application: confluentinc/cp-server:8.1.1
     init: confluentinc/confluent-init-container:3.1.1
     pullSecretRef:
       - dockerhub-secret
+
   dataVolumeCapacity: 50Gi
+
   mountedVolumes:
     volumes:
       - name: oauth-truststore
@@ -19,6 +22,7 @@ spec:
     volumeMounts:
       - name: oauth-truststore
         mountPath: /mnt/oauth-truststore
+
   podTemplate:
     resources:
       requests:
@@ -43,12 +47,15 @@ spec:
                     values:
                       - kafka
               topologyKey: topology.kubernetes.io/zone
+
   authorization:
     type: rbac
     superUsers:
       - User:0oayz08eewEWBFnjU697
+
   tls:
     secretRef: tls-certs
+
   listeners:
     internal:
       authentication:
@@ -65,6 +72,7 @@ spec:
           scope: confluent
       tls:
         enabled: true
+
     external:
       authentication:
         type: oauth
@@ -84,6 +92,7 @@ spec:
         type: route
         route:
           domain: dev.confluent.psyncopate.io
+
   services:
     mds:
       tls:
@@ -112,6 +121,7 @@ spec:
             subClaimName: email
             groupsClaimScope: openid profile email
             refreshToken: true
+
   dependencies:
     kRaftController:
       clusterRef:
@@ -132,6 +142,7 @@ spec:
         tls:
           enabled: true
           secretRef: tls-certs
+
     kafkaRest:
       authentication:
         type: oauth
@@ -148,6 +159,7 @@ spec:
       tls:
         enabled: true
         secretRef: tls-certs
+
   metricReporter:
     enabled: true
     bootstrapEndpoint: kafka.confluent.svc.cluster.local:9071
@@ -166,6 +178,7 @@ spec:
         jwksEndpointUri: https://integrator-9299379.okta.com/oauth2/ausycetmnaDzitHrI697/v1/keys
         tokenEndpointUri: https://integrator-9299379.okta.com/oauth2/ausycetmnaDzitHrI697/v1/token
         scope: confluent
+
   configOverrides:
     server:
       - auto.create.topics.enable=false
@@ -174,12 +187,13 @@ spec:
       - num.partitions=3
       - log.retention.hours=168
 
-      # REQUIRED for internal Kafka clients (AdminClient, Metrics, License)
+      # Required for internal Kafka clients (AdminClient, Metrics, License)
       - security.protocol=SASL_SSL
       - sasl.mechanism=OAUTHBEARER
       - sasl.oauthbearer.token.endpoint.url=https://integrator-9299379.okta.com/oauth2/ausycetmnaDzitHrI697/v1/token
       - sasl.oauthbearer.jwks.endpoint.url=https://integrator-9299379.okta.com/oauth2/ausycetmnaDzitHrI697/v1/keys
       - sasl.oauthbearer.expected.issuer=https://integrator-9299379.okta.com/oauth2/ausycetmnaDzitHrI697
+
     jvm:
       - "-Djavax.net.ssl.trustStoreType=JKS"
       - "-Djavax.net.ssl.trustStore=/mnt/oauth-truststore/truststore.jks"
