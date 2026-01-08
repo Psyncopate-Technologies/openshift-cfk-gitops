@@ -1,0 +1,13 @@
+apiVersion: platform.confluent.io/v1beta1
+kind: ConfluentRolebinding
+metadata:
+  name: aadmassu-sys-admin
+  namespace: confluent
+spec:
+  principal:
+    type: user
+    name: 00uybxsfm79jtyhvS697   # Okta USER ID (sub claim)
+  role: SystemAdmin
+  kafkaRestClassRef:
+    name: default
+    namespace: confluent

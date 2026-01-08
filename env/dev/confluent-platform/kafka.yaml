@@ -51,7 +51,8 @@ spec:
   authorization:
     type: rbac
     superUsers:
-      - User:0oayz08eewEWBFnjU697
+      - User:0oayz08eewEWBFnjU697   # broker/internal S2S
+      - User:0oayz08d3uD78gzVy697   # client S2S (if used internally anywhere)
 
   tls:
     secretRef: tls-certs

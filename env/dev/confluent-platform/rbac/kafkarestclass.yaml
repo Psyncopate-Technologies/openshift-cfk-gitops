@@ -1,0 +1,22 @@
+apiVersion: platform.confluent.io/v1beta1
+kind: KafkaRestClass
+metadata:
+  name: default
+  namespace: confluent
+spec:
+  kafkaClusterRef:
+    name: kafka
+    namespace: confluent
+  kafkaRest:
+    authentication:
+      type: oauth
+      oauth:
+        secretRef: oauth-jass
+        configuration:
+          audience: api://confluent
+          expectedIssuer: https://integrator-9299379.okta.com/oauth2/ausycetmnaDzitHrI697
+          groupsClaimName: groups
+          subClaimName: sub
+          jwksEndpointUri: https://integrator-9299379.okta.com/oauth2/ausycetmnaDzitHrI697/v1/keys
+          tokenEndpointUri: https://integrator-9299379.okta.com/oauth2/ausycetmnaDzitHrI697/v1/token
+          scope: kafka
