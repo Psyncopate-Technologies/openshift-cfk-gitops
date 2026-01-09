@@ -14,6 +14,8 @@ resources:
   # RBAC
   - rbac/kafkarestclass.yaml
   - rbac/sysAdmins.yaml
+  # Topics
+  - topics/kafka-topics.yaml
   # Confluent Platform Components
   - kraftcontroller.yaml
   - kafka.yaml
