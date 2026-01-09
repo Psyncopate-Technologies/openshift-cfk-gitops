@@ -11,6 +11,9 @@ resources:
   - secrets/oauth-jass-oidc.yaml
   - secrets/mds-token.yaml
   - secrets/oauth-truststore.yaml
+  # RBAC
+  - rbac/kafkarestclass.yaml
+  - rbac/sysAdmins.yaml
   # Confluent Platform Components
   - kraftcontroller.yaml
   - kafka.yaml
