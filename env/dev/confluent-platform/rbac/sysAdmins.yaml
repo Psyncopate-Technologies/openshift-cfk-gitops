@@ -11,3 +11,17 @@ spec:
   kafkaRestClassRef:
     name: default
     namespace: confluent
+---
+apiVersion: platform.confluent.io/v1beta1
+kind: ConfluentRolebinding
+metadata:
+  name: amichael-sys-admin
+  namespace: confluent
+spec:
+  principal:
+    type: user
+    name: amichael@psyncopate.com   # Okta email (SSO subClaimName: email)
+  role: SystemAdmin
+  kafkaRestClassRef:
+    name: default
+    namespace: confluent
