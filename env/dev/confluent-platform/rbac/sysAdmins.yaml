@@ -1,0 +1,13 @@
+apiVersion: platform.confluent.io/v1beta1
+kind: ConfluentRolebinding
+metadata:
+  name: aadmassu-sys-admin
+  namespace: confluent
+spec:
+  principal:
+    type: user
+    name: aadmassu@psyncopate.com   # Okta email (SSO subClaimName: email)
+  role: SystemAdmin
+  kafkaRestClassRef:
+    name: default
+    namespace: confluent
