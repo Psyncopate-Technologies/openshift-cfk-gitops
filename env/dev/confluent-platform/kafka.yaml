@@ -8,7 +8,6 @@ spec:
 
   license:
     globalLicense: true
-    secretRef: confluent-license
 
   image:
     application: confluentinc/cp-server:8.1.1
