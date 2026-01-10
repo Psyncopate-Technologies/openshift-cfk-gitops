@@ -11,6 +11,8 @@ resources:
   - secrets/oauth-jass-oidc.yaml
   - secrets/mds-token.yaml
   - secrets/oauth-truststore.yaml
+  # License
+  - secrets/confluent-license.yaml
   # RBAC
   - rbac/kafkarestclass.yaml
   - rbac/sysAdmins.yaml
