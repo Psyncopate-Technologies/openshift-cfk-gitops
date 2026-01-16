@@ -4,6 +4,8 @@ kind: Kustomization
 namespace: confluent
 
 resources:
+  # License
+  - secrets/license.yaml
   # TLS Certificates
   - secrets/tls-certs.yaml
   # OAuth Secrets
