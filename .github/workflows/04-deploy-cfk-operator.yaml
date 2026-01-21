@@ -111,6 +111,11 @@ jobs:
           oc adm policy add-scc-to-user confluent-scc \
             system:serviceaccount:confluent-operator:confluent-for-kubernetes || true
 
+      - name: Apply Confluent License
+        run: |
+          echo "Applying Confluent license secret..."
+          oc apply -f env/dev/confluent-operator/secrets/license.yaml
+
       - name: Verify CFK Operator
         run: |
           echo "=== CFK Operator Pods ==="

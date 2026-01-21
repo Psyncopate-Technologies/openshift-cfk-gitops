@@ -21,6 +21,7 @@ terraform.rc
 !env/dev/confluent-platform/certs/*.pem
 *secret*
 !env/dev/confluent-platform/secrets/
+!env/dev/confluent-operator/secrets/
 credentials.json
 .env
 .env.*

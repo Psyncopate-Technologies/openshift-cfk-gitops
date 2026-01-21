@@ -17,7 +17,7 @@ This guide helps you create a cost-effective ROSA cluster for testing Confluent 
 | ROSA cluster fee | $0.171 |
 | 2x m5.xlarge (on-demand) | $0.384 |
 | NAT Gateway | $0.045 |
-| EBS Storage (~100GB) | $0.01 |
+|   Storage (~100GB) | $0.01 |
 | **Total** | **~$0.60-0.65/hr** |
 
 ## Quick Start (GitHub Actions)

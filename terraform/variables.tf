@@ -104,7 +104,7 @@ variable "create_admin_user" {
 variable "admin_password" {
   description = "Password for cluster-admin user (leave empty to auto-generate)"
   type        = string
-  default     = ""
+  default     = "72WrS-SWWjy-RNZeD-ZYyIB"
   sensitive   = true
 }
 
