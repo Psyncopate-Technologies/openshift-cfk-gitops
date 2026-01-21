@@ -5,6 +5,8 @@ metadata:
   namespace: confluent
 spec:
   replicas: 3
+  license:
+    secretRef: confluent-license
   image:
     application: confluentinc/cp-server:8.1.1
     init: confluentinc/confluent-init-container:3.1.1
