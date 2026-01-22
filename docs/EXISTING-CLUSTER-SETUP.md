@@ -58,6 +58,7 @@ oc get nodes
 # Create namespaces (separate control plane and data plane)
 oc create namespace confluent
 oc create namespace confluent-operator
+oc create namespace flink
 
 # Apply Security Context Constraints
 oc apply -f env/dev/cluster-config/scc.yaml
@@ -71,6 +72,7 @@ oc adm policy add-scc-to-user confluent-scc -z connect -n confluent
 oc adm policy add-scc-to-user confluent-scc -z ksqldb -n confluent
 oc adm policy add-scc-to-user confluent-scc -z controlcenter -n confluent
 oc adm policy add-scc-to-user confluent-scc -z kafkarestproxy -n confluent
+oc adm policy add-scc-to-user confluent-scc -z default -n flink
 ```
 
 ### Step 2: Create TLS CA Certificate

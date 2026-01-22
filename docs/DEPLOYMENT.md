@@ -4,7 +4,7 @@ This guide walks through deploying Confluent Platform on OpenShift using GitHub 
 
 ## Overview
 
-The deployment consists of 5 sequential workflows, plus a cleanup workflow. All workflows use ArgoCD for GitOps-based continuous deployment.
+The deployment consists of 7 sequential workflows, plus a cleanup workflow. All workflows use ArgoCD for GitOps-based continuous deployment.
 
 ## Prerequisites
 
@@ -137,6 +137,51 @@ Deploys all Confluent Platform components via ArgoCD:
 3. Schema Registry, Connect, ksqlDB, REST Proxy start
 4. Control Center starts last (depends on all components)
 
+### Step 6: Install Flink Infrastructure (Optional)
+
+**Workflow:** `06-install-flink-infra.yaml`
+
+Installs all infrastructure required for Apache Flink.
+
+**Installs:**
+- cert-manager (required by Flink Kubernetes Operator)
+- Flink Kubernetes Operator (watches the `flink` namespace)
+- Confluent Manager for Apache Flink (CMF)
+- Mutual TLS (mTLS) between CFK and CMF
+
+**Security Model:**
+- Reuses the cluster CA (`ca-pair-sslcerts`) created in Step 2
+- Generates CMF server certificates and CFK client certificates
+- Configures CMF to require mTLS
+- No OpenShift Route is created (internal service only)
+
+**CMF Endpoint:**
+https://cmf-service.confluent.svc.cluster.local:80
+
+**Duration:** ~10 minutes
+
+### Step 7: Deploy Flink via GitOps (Optional)
+
+**Workflow:** `07-deploy-flink-gitops.yaml`
+
+Deploys Apache Flink resources using ArgoCD.
+
+**Deploys:**
+- `CMFRestClass`
+- `FlinkEnvironment`
+- `FlinkApplication`
+
+**GitOps Source:**
+
+env/<env>/flink/
+
+**Behavior:**
+- Flink CRs are created in the `confluent` namespace
+- Flink JobManager and TaskManager pods run in the `flink` namespace
+- CFK reconciles Flink state via CMF
+
+**Duration:** ~5 minutes
+
 ## DNS Setup
 
 After cluster provisioning, create a wildcard CNAME record for your custom domain:
@@ -201,6 +246,16 @@ oc get pods -n confluent
 
 # Check ArgoCD applications
 oc get applications -n openshift-gitops
+
+# Verify Flink
+oc get cmfrestclass -n confluent
+oc get flinkenvironment -n confluent
+oc get flinkapplication -n confluent
+oc get pods -n flink
+
+# Flink Security Model
+- **CFK ↔ CMF:** Mutual TLS (mTLS)
+- **Kafka / Clients:** OAuth (SASL/OAUTHBEARER)
 
 # Check routes
 oc get routes -n confluent

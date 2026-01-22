@@ -13,6 +13,7 @@ This directory contains comprehensive documentation for deploying Confluent Plat
 | [COST-OPTIMIZATION.md](COST-OPTIMIZATION.md) | Strategies to minimize AWS costs |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common issues and solutions |
 | [ROSA-OC-CHEATSHEET.md](ROSA-OC-CHEATSHEET.md) | ROSA and OpenShift CLI command reference |
+| **Apache Flink** | Flink architecture, CMF, and GitOps deployment (see Main README) |
 
 ## Related Documentation
 
@@ -54,6 +55,8 @@ Uses GitHub Actions workflows to provision and configure everything:
 - **03-install-argocd** - Install ArgoCD for GitOps
 - **04-deploy-cfk-operator** - Deploy CFK Operator
 - **05-deploy-confluent-platform** - Deploy Confluent Platform
+- **06-install-flink-infra** - Install Flink infrastructure (CMF, Flink Operator, mTLS)
+- **07-deploy-flink-gitops** - Deploy Flink environments and applications
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
 
@@ -70,15 +73,18 @@ See [EXISTING-CLUSTER-SETUP.md](EXISTING-CLUSTER-SETUP.md) for details.
 ```
 ROSA Cluster
 ├── confluent-operator namespace
-│   └── CFK Operator (manages Confluent resources)
-└── confluent namespace
-    ├── KRaft Controller (3 replicas)
-    ├── Kafka (3 brokers)
-    ├── Schema Registry
-    ├── Kafka Connect
-    ├── ksqlDB
-    ├── Control Center
-    └── REST Proxy
+│   └── CFK Operator (control plane)
+├── confluent namespace
+│   ├── KRaft Controller (3 replicas)
+│   ├── Kafka (3 brokers)
+│   ├── Schema Registry
+│   ├── Kafka Connect
+│   ├── ksqlDB
+│   ├── Control Center
+│   ├── REST Proxy
+│   └── CMF (Confluent Manager for Apache Flink)
+└── flink namespace
+    └── Apache Flink JobManager / TaskManager pods
 ```
 
 ## Key Technologies
@@ -88,6 +94,8 @@ ROSA Cluster
 | ROSA | 4.20.0 | Managed OpenShift on AWS |
 | CFK | 3.1.1 | Confluent for Kubernetes operator |
 | Confluent Platform | 8.1.1 | Kafka and ecosystem |
+| Apache Flink | 1.19.x | Stateful stream processing |
+| CMF | 2.x | Flink lifecycle management |
 | ArgoCD | Latest | GitOps continuous deployment |
 | Terraform | 1.11+ | Infrastructure as Code |
 

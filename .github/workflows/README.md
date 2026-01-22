@@ -13,6 +13,8 @@ This directory contains the GitHub Actions workflows for deploying and managing 
 | 03 | [03-install-argocd.yaml](03-install-argocd.yaml) | Install OpenShift GitOps (ArgoCD) | ~5 min |
 | 04 | [04-deploy-cfk-operator.yaml](04-deploy-cfk-operator.yaml) | Deploy CFK Operator via ArgoCD | ~5 min |
 | 05 | [05-deploy-confluent-platform.yaml](05-deploy-confluent-platform.yaml) | Deploy Confluent Platform via ArgoCD | ~15 min |
+| 06 | [06-install-flink-infra.yaml](06-install-flink-infra.yaml) | Install Flink infra (cert-manager, Flink Operator, CMF, mTLS) | ~10 min |
+| 07 | [07-deploy-flink-gitops.yaml](07-deploy-flink-gitops.yaml) | Deploy Flink environments and applications via ArgoCD | ~5 min |
 | 99 | [99-deprovision-rosa.yaml](99-deprovision-rosa.yaml) | Delete ROSA cluster and cleanup | ~15 min |
 
 ## Quick Start
@@ -20,11 +22,13 @@ This directory contains the GitHub Actions workflows for deploying and managing 
 Run these workflows in order:
 
 ```
-01-Provision ROSA        → Create ROSA cluster (Terraform)
-02-Configure Cluster     → Setup namespaces, SCCs, secrets
-03-Install ArgoCD        → Install OpenShift GitOps operator
-04-Deploy CFK Operator   → Deploy CFK 3.1.1 via ArgoCD
-05-Deploy Confluent Platform → Deploy CP 8.1.x via ArgoCD
+01-Provision ROSA             → Create ROSA cluster (Terraform)
+02-Configure Cluster          → Setup namespaces, SCCs, secrets
+03-Install ArgoCD             → Install OpenShift GitOps operator
+04-Deploy CFK Operator        → Deploy CFK 3.1.1 via ArgoCD
+05-Deploy Confluent Platform  → Deploy CP 8.1.x via ArgoCD
+06-Install Flink Infra        → Install cert-manager, Flink Operator, CMF, mTLS
+07-Deploy Flink (GitOps)      → Deploy Flink environments and applications
 ```
 
 **When done testing:**
@@ -86,6 +90,7 @@ Following Confluent best practices, this deployment uses separate namespaces:
 |-----------|---------|----------|
 | `confluent-operator` | Control Plane | CFK Operator pod |
 | `confluent` | Data Plane | Kafka, KRaft, Schema Registry, Connect, ksqlDB, Control Center, REST Proxy |
+| `flink` | Compute | Apache Flink JobManager / TaskManager pods |
 
 **Benefits:**
 - Security isolation with different RBAC policies
@@ -174,6 +179,57 @@ Deploys all Confluent Platform components via ArgoCD.
 - ksqlDB: `https://ksqldb.<custom-domain>`
 - REST Proxy: `https://kafkarestproxy.<custom-domain>`
 
+## Apache Flink Workflows
+
+Apache Flink is deployed using **Confluent Platform for Apache Flink** and managed through **CFK and GitOps**.
+
+### 06-install-flink-infra.yaml
+
+Installs all Flink infrastructure components.
+
+**Installs:**
+- cert-manager (required by Flink Kubernetes Operator)
+- Flink Kubernetes Operator (watches `flink` namespace)
+- Confluent Manager for Apache Flink (CMF)
+- mTLS configuration between CFK and CMF
+
+**Security:**
+- Reuses the cluster CA (`ca-pair-sslcerts`) created in workflow 02
+- Generates CMF server certificates and CFK client certificates
+- Configures CMF to require mTLS
+- No OpenShift Route is created (internal service only)
+
+CMF endpoint:
+https://cmf-service.confluent.svc.cluster.local:80
+
+### 07-deploy-flink-gitops.yaml
+
+Deploys Flink resources using ArgoCD.
+
+**Deploys:**
+- `CMFRestClass`
+- `FlinkEnvironment`
+- `FlinkApplication`
+
+**GitOps Source:**
+env/<env>/flink/
+
+**Behavior:**
+- Flink CRs are created in the `confluent` namespace
+- Flink JobManager and TaskManager pods run in the `flink` namespace
+- CFK reconciles Flink state via CMF
+
+### Flink Security Model
+
+- **CFK ↔ CMF:** Mutual TLS (mTLS)
+- **Kafka / Clients:** OAuth (SASL/OAUTHBEARER)
+
+OAuth configuration applies to Kafka and client-facing components.
+It does **not** replace mTLS between CFK and CMF.
+
+If Flink jobs access Kafka using OAuth, Flink pods must be configured
+with OAuth client properties and trust the IdP certificate chain.
+
 ### 99-deprovision-rosa.yaml
 
 Destroys the ROSA cluster and cleans up AWS resources.
@@ -261,3 +317,10 @@ Total: ~$15-20 for a day of testing
 - Control Center uses Jetty 12 which requires SNI validation
 - Ensure `confluent.controlcenter.rest.sni.host.check.enabled=false` is in Control Center configOverrides
 - This is already configured in `env/dev/confluent-platform/controlcenter.yaml`
+
+### Flink application not starting
+- Verify CMF is running: `oc -n confluent get pods | grep cmf`
+- Verify CMFRestClass status: `oc -n confluent get cmfrestclass`
+- Verify FlinkEnvironment exists: `oc -n confluent get flinkenvironment`
+- Ensure service account exists: `oc -n flink get sa flink`
+- Check CFK operator logs: `oc logs -n confluent-operator -l app=confluent-operator`

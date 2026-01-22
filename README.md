@@ -15,31 +15,48 @@ This project deploys Confluent Platform 8.1.1 on a ROSA (Red Hat OpenShift Servi
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         AWS Account                              │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                      ROSA Cluster                        │   │
-│  │  ┌──────────────────────┐  ┌────────────────────────┐   │   │
-│  │  │ confluent-operator   │  │     confluent ns       │   │   │
-│  │  │ namespace            │  │  ┌──────┐ ┌──────┐    │   │   │
-│  │  │ ┌──────────────────┐ │  │  │KRaft │ │Kafka │    │   │   │
-│  │  │ │  CFK Operator    │─┼──┼─▶│Ctrl  │ │Broker│    │   │   │
-│  │  │ │  (Control Plane) │ │  │  └──────┘ └──────┘    │   │   │
-│  │  │ └──────────────────┘ │  │  ┌──────┐ ┌──────┐    │   │   │
-│  │  └──────────────────────┘  │  │Schema│ │ksqlDB│    │   │   │
-│  │                            │  │  Reg │ │      │    │   │   │
-│  │                            │  └──────┘ └──────┘    │   │   │
-│  │                            │  ┌──────┐ ┌──────┐    │   │   │
-│  │                            │  │Connect│ │ C3  │    │   │   │
-│  │                            │  └──────┘ └──────┘    │   │   │
-│  │                            └────────────────────────┘   │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                         AWS Account                        │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │                      ROSA Cluster                   │   │
+│  │                                                     │   │
+│  │  ┌──────────────────────┐                           │   │
+│  │  │ confluent-operator   │                           │   │
+│  │  │ namespace            │                           │   │
+│  │  │ ┌──────────────────┐ │                           │   │
+│  │  │ │  CFK Operator    │ │                           │   │
+│  │  │ │  (Control Plane) │ │                           │   │
+│  │  │ └─────────┬────────┘ │                           │   │
+│  │  └───────────┼──────────┘                           │   │
+│  │              │ mTLS                                 │   │
+│  │              ▼                                      │   │
+│  │  ┌──────────────────────────────┐                   │   │
+│  │  │         confluent ns         │                   │   │
+│  │  │ ┌──────┐ ┌──────┐ ┌──────┐   │                   │   │
+│  │  │ │Kafka │ │KRaft │ │Schema│   │                   │   │
+│  │  │ └──────┘ └──────┘ └──────┘   │                   │   │
+│  │  │ ┌──────┐ ┌──────┐ ┌──────┐   │                   │   │
+│  │  │ │Connect││ksqlDB││  C3   │   │                   │   │
+│  │  │ └──────┘ └──────┘ └──────┘   │                   │   │
+│  │  │ ┌────────────────────────┐   │                   │   │
+│  │  │ │ CMF (Flink Manager)    │   │                   │   │
+│  │  │ └──────────┬─────────────┘   │                   │   │
+│  │  └────────────┼─────────────────┘                   │   │
+│  │               │ Flink control plane                 │   │
+│  │               ▼                                     │   │
+│  │  ┌──────────────────────────────┐                   │   │
+│  │  │           flink ns           │                   │   │
+│  │  │   JobManager / TaskManager   │                   │   │
+│  │  │      (Flink workloads)       │                   │   │
+│  │  └──────────────────────────────┘                   │   │
+│  └─────────────────────────────────────────────────────┘   │
+└────────────────────────────────────────────────────────────┘
 ```
 
 **Namespace Separation (Best Practice):**
 - `confluent-operator` - CFK Operator (control plane)
 - `confluent` - Confluent Platform components (data plane)
+- `flink` – Apache Flink compute (JobManager / TaskManager pods)
 
 ## Components
 
@@ -53,6 +70,8 @@ This project deploys Confluent Platform 8.1.1 on a ROSA (Red Hat OpenShift Servi
 | ksqlDB | 8.1.1 | 1 | confluent |
 | Control Center | Next-Gen 2.3.1 | 1 | confluent |
 | REST Proxy | 8.1.1 | 1 | confluent |
+| Confluent Manager for Apache Flink (CMF) | 2.x | 1 | confluent |
+| Apache Flink (JobManager / TaskManager) | 1.19.x | dynamic | flink |
 
 ## Quick Start
 
@@ -141,6 +160,8 @@ Run workflows in order via GitHub Actions:
 3. **03-install-argocd** - Install ArgoCD and configure SSH credentials (~5 min)
 4. **04-deploy-cfk-operator** - Deploy CFK Operator via ArgoCD (~5 min)
 5. **05-deploy-confluent-platform** - Deploy all components via ArgoCD (~15 min)
+6. **06-install-flink-infra** – Install cert-manager, Flink Operator, CMF, mTLS (~10 min)
+7. **07-deploy-flink-gitops** – Deploy Flink environments and applications via ArgoCD (~5 min)
 
 **ArgoCD Benefits:**
 - Automatic sync when you push changes to git
@@ -150,32 +171,92 @@ Run workflows in order via GitHub Actions:
 
 ## How ArgoCD Manages Components
 
-There are two ArgoCD Applications:
+There are three ArgoCD Applications:
 
 | Application | Source | What It Manages |
 |-------------|--------|-----------------|
 | `cfk-operator` | Confluent Helm repo | CFK Operator deployment |
 | `confluent-platform` | This Git repo (`env/dev/confluent-platform/`) | Confluent Platform CRDs |
+| `flink` | This Git repo (`env/dev/flink/`) | Flink environments and applications |
+
+## Apache Flink on OpenShift
+
+This project supports **Apache Flink** using **Confluent Platform for Apache Flink**, deployed and managed through **CFK** and **GitOps**.
+
+### Architecture Overview
+- **CMF (Confluent Manager for Apache Flink)** runs in the `confluent` namespace
+- **Flink compute (JobManager / TaskManager)** runs in the `flink` namespace
+- CFK manages Flink lifecycle using:
+  - `CMFRestClass`
+  - `FlinkEnvironment`
+  - `FlinkApplication`
+
+### Security Model
+
+#### CMF ↔ CFK (Control Plane)
+- **Mutual TLS (mTLS)** is used
+- Certificates are signed by the cluster CA (`ca-pair-sslcerts`)
+- Communication is **internal-only** (no OpenShift Route)
+
+Example CMF endpoint:
+
+https://cmf-service.confluent.svc.cluster.local:80
+
+#### OAuth (Kafka / Clients)
+OAuth configuration in this repo applies to:
+- Kafka brokers
+- Control Center
+- Connect
+- ksqlDB
+- REST Proxy
+
+OAuth **does not replace mTLS** between CFK and CMF.
+
+If Flink jobs access Kafka using OAuth (SASL/OAUTHBEARER), Flink pods must be configured with:
+- OAuth client configuration
+- Truststore containing the IdP CA
+
+See:
+- `docs/OAUTH-TRUSTSTORE-SETUP.md`
+
+### GitOps Management
+Flink is deployed via ArgoCD as a separate application:
+- Source: `env/<env>/flink/`
+- Namespace: `confluent`
+- Compute namespace: `flink`
+
+Changes to Flink environments or applications are made declaratively in Git and automatically reconciled by ArgoCD and CFK.
 
 **Architecture:**
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         ArgoCD                                   │
-│  ┌─────────────────────┐    ┌─────────────────────────────┐    │
-│  │  cfk-operator App   │    │  confluent-platform App     │    │
-│  │  (Helm Chart)       │    │  (Git Repo)                 │    │
-│  └──────────┬──────────┘    └──────────────┬──────────────┘    │
-└─────────────┼───────────────────────────────┼──────────────────┘
+┌───────────────────────────────────────────────────────────────┐
+│                         ArgoCD                                │
+│  ┌─────────────────────┐    ┌─────────────────────────────┐   │
+│  │  cfk-operator App   │    │  confluent-platform App     │   │
+│  │  (Helm Chart)       │    │  (Git Repo)                 │   │
+│  └──────────┬──────────┘    └──────────────┬──────────────┘   │
+└─────────────┼───────────────────────────────┼─────────────────┘
               │                               │
               ▼                               ▼
-┌─────────────────────────┐    ┌─────────────────────────────────┐
-│ confluent-operator ns   │    │        confluent ns              │
+┌─────────────────────────┐    ┌────────────────────────────────┐
+│ confluent-operator ns   │    │        confluent ns            │
 │ ┌─────────────────────┐ │    │ ┌───────┐ ┌───────┐ ┌───────┐  │
 │ │  CFK Operator Pod   │─┼────┼▶│ Kafka │ │ KRaft │ │  ...  │  │
 │ │  (reconciles CRDs)  │ │    │ │ Pods  │ │ Pods  │ │       │  │
 │ └─────────────────────┘ │    │ └───────┘ └───────┘ └───────┘  │
-└─────────────────────────┘    └─────────────────────────────────┘
+└─────────────────────────┘    └────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────┐   
+│                 flink App (GitOps)                       │
+│                 (env/<env>/flink/)                       │
+└──────────────────────────┬───────────────────────────────┘   
+                           ▼                                   
+                ┌──────────────────────────┐                  
+                │        flink ns          │                  
+                │ JobManager / TaskManager │                  
+                │   (Flink workloads)      │                  
+                └──────────────────────────┘           
 ```
 
 **Key Points:**
@@ -219,7 +300,11 @@ openshift-cfk-gitops/
 │       │   ├── cfk-operator-app.yaml      # CFK Operator Application
 │       │   └── confluent-platform-app.yaml # CP Application (SSH repo)
 │       ├── cluster-config/         # Namespace and SCC definitions
-│       └── confluent-platform/     # Confluent Platform manifests
+│       ├── confluent-platform/     # Confluent Platform manifests
+│       └── flink/                  # Flink Application manifests
+│            ├── cmfrestclass.yaml   # Flink CMF Rest Class manifest
+│            ├── flinkenvironment.yaml # Flink Environment manifest
+│            └── flinkapplication.yaml # Flink Application manifest
 └── docs/                           # Documentation
 ```
 
