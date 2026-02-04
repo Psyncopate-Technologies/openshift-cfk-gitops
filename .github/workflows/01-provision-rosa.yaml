@@ -52,6 +52,7 @@ jobs:
   terraform:
     name: Terraform ${{ github.event.inputs.action }} (${{ github.event.inputs.environment }})
     runs-on: ubuntu-latest
+    timeout-minutes: 90  # ROSA cluster provisioning can take 30-45+ minutes
     environment: ${{ github.event.inputs.environment }}
 
     defaults:
