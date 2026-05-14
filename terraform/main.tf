@@ -11,7 +11,11 @@ provider "aws" {
 }
 
 provider "rhcs" {
-  token = var.rhcs_token
+  # Prefer service-account client_credentials; fall back to legacy
+  # offline token if client_id is not set so old pipelines still work.
+  client_id     = var.rhcs_client_id != "" ? var.rhcs_client_id : null
+  client_secret = var.rhcs_client_secret != "" ? var.rhcs_client_secret : null
+  token         = var.rhcs_token != "" ? var.rhcs_token : null
 }
 
 # =============================================================================

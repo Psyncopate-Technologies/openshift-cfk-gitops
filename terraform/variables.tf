@@ -89,10 +89,33 @@ variable "host_prefix" {
 # Authentication
 # =============================================================================
 
-variable "rhcs_token" {
-  description = "Red Hat Cloud Services API token"
+# RHCS service-account credentials (preferred — see
+# https://console.redhat.com/iam/service-accounts).
+# Red Hat deprecated offline tokens; service accounts use the standard
+# OAuth2 client_credentials grant and the rhcs provider mints + refreshes
+# the bearer token itself.
+variable "rhcs_client_id" {
+  description = "Red Hat Cloud Services service-account client ID"
   type        = string
   sensitive   = true
+  default     = ""
+}
+
+variable "rhcs_client_secret" {
+  description = "Red Hat Cloud Services service-account client secret"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+# Legacy offline token — kept for back-compat. If empty (default), the
+# provider authenticates via client_id + client_secret instead. Existing
+# pipelines that still pass RHCS_TOKEN keep working.
+variable "rhcs_token" {
+  description = "Red Hat Cloud Services offline token (legacy; prefer rhcs_client_id/secret)"
+  type        = string
+  sensitive   = true
+  default     = ""
 }
 
 variable "create_admin_user" {

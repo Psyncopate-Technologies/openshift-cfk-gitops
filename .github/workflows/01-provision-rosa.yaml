@@ -94,6 +94,10 @@ jobs:
           terraform init \
             -backend-config="env/${{ github.event.inputs.environment }}/backend.tfvars"
         env:
+          # Service-account credentials (preferred). RHCS_TOKEN kept for
+          # back-compat in case the secret is still set in some envs.
+          TF_VAR_rhcs_client_id: ${{ secrets.RHCS_CLIENT_ID }}
+          TF_VAR_rhcs_client_secret: ${{ secrets.RHCS_CLIENT_SECRET }}
           TF_VAR_rhcs_token: ${{ secrets.RHCS_TOKEN }}
 
       - name: Terraform Validate
@@ -118,6 +122,8 @@ jobs:
 
           terraform plan \
             -var-file="env/${{ github.event.inputs.environment }}/terraform.tfvars" \
+            -var="rhcs_client_id=${{ secrets.RHCS_CLIENT_ID }}" \
+            -var="rhcs_client_secret=${{ secrets.RHCS_CLIENT_SECRET }}" \
             -var="rhcs_token=${{ secrets.RHCS_TOKEN }}" \
             -var="admin_password=${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
             $OVERRIDE_ARGS \
@@ -139,6 +145,8 @@ jobs:
         run: |
           terraform apply -auto-approve tfplan
         env:
+          TF_VAR_rhcs_client_id: ${{ secrets.RHCS_CLIENT_ID }}
+          TF_VAR_rhcs_client_secret: ${{ secrets.RHCS_CLIENT_SECRET }}
           TF_VAR_rhcs_token: ${{ secrets.RHCS_TOKEN }}
           TF_VAR_admin_password: ${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}
 
@@ -154,11 +162,15 @@ jobs:
 
           terraform destroy \
             -var-file="env/${{ github.event.inputs.environment }}/terraform.tfvars" \
+            -var="rhcs_client_id=${{ secrets.RHCS_CLIENT_ID }}" \
+            -var="rhcs_client_secret=${{ secrets.RHCS_CLIENT_SECRET }}" \
             -var="rhcs_token=${{ secrets.RHCS_TOKEN }}" \
             -var="admin_password=${{ secrets.OPENSHIFT_ADMIN_PASSWORD }}" \
             $OVERRIDE_ARGS \
             -auto-approve
         env:
+          TF_VAR_rhcs_client_id: ${{ secrets.RHCS_CLIENT_ID }}
+          TF_VAR_rhcs_client_secret: ${{ secrets.RHCS_CLIENT_SECRET }}
           TF_VAR_rhcs_token: ${{ secrets.RHCS_TOKEN }}
 
       - name: Get Outputs
