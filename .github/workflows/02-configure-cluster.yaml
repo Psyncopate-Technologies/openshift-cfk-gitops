@@ -63,7 +63,7 @@ jobs:
 
       - name: Login to ROSA
         run: |
-          rosa login --token="${{ secrets.RHCS_TOKEN }}"
+          rosa login --client-id="${{ secrets.RHCS_CLIENT_ID }}" --client-secret="${{ secrets.RHCS_CLIENT_SECRET }}"
 
       - name: Get Cluster Info
         id: cluster

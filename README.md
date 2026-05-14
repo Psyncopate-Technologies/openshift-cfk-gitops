@@ -68,7 +68,8 @@ This project deploys Confluent Platform 8.1.1 on a ROSA (Red Hat OpenShift Servi
 |--------|-------------|
 | `AWS_ACCESS_KEY_ID` | AWS access key |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key |
-| `RHCS_TOKEN` | Red Hat Cloud Services token ([Get token](https://cloud.redhat.com/openshift/token/rosa)) |
+| `RHCS_CLIENT_ID` | RHCS service-account client ID ([Create service account](https://console.redhat.com/iam/service-accounts)) |
+| `RHCS_CLIENT_SECRET` | RHCS service-account client secret (shown once at creation time) |
 | `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password (created by workflow 01) |
 | `DOCKER_HUB_USERNAME` | Docker Hub username (for image pulls) |
 | `DOCKER_HUB_TOKEN` | Docker Hub access token ([Create token](https://hub.docker.com/settings/security)) |

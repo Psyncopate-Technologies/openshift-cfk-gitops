@@ -29,7 +29,8 @@ The recommended approach is to use the GitHub Actions workflows:
 1. **GitHub Secrets configured** (see [PREREQUISITES.md](PREREQUISITES.md)):
    - `AWS_ACCESS_KEY_ID`
    - `AWS_SECRET_ACCESS_KEY`
-   - `RHCS_TOKEN`
+   - `RHCS_CLIENT_ID`
+   - `RHCS_CLIENT_SECRET`
    - `OPENSHIFT_ADMIN_PASSWORD`
 
 2. **Red Hat terms accepted** at https://console.redhat.com/openshift

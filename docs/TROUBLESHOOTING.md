@@ -47,7 +47,7 @@ rosa list clusters
 3. If login still fails with 401, reset the admin user:
    ```bash
    # Login to ROSA first
-   rosa login --token="$RHCS_TOKEN"
+   rosa login --client-id="$RHCS_CLIENT_ID" --client-secret="$RHCS_CLIENT_SECRET"
 
    # Delete existing admin
    rosa delete admin -c <cluster-name> -y
@@ -69,7 +69,7 @@ rosa list clusters
 
 **Causes:**
 1. AWS quota exceeded
-2. Invalid RHCS token
+2. Invalid RHCS service-account credentials
 3. Account roles not created
 4. Legal terms not accepted
 
@@ -78,8 +78,8 @@ rosa list clusters
 # Check AWS quotas
 rosa verify quota
 
-# Verify RHCS token
-rosa login --token="$RHCS_TOKEN"
+# Verify RHCS service-account credentials
+rosa login --client-id="$RHCS_CLIENT_ID" --client-secret="$RHCS_CLIENT_SECRET"
 rosa whoami
 
 # Check account roles
@@ -101,7 +101,7 @@ rosa list account-roles
 
 2. **Via CLI:**
    ```bash
-   rosa login --token="$RHCS_TOKEN"
+   rosa login --client-id="$RHCS_CLIENT_ID" --client-secret="$RHCS_CLIENT_SECRET"
    rosa init
    ```
    When prompted, accept the terms.

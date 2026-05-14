@@ -38,19 +38,12 @@ host_prefix  = 23
 # Authentication
 # =============================================================================
 
-# Red Hat Cloud Services authentication — TWO supported methods.
-#
-# Preferred: service-account client credentials. Create at
-# https://console.redhat.com/iam/service-accounts and set:
+# Red Hat Cloud Services authentication — service-account credentials.
+# Create at https://console.redhat.com/iam/service-accounts and set:
 #   rhcs_client_id     = "..."
 #   rhcs_client_secret = "..."
 # or via env vars TF_VAR_rhcs_client_id / TF_VAR_rhcs_client_secret.
-#
-# Legacy: offline token from https://console.redhat.com/openshift/token
-# Red Hat is deprecating these — the offline session expires if the
-# token isn't used for ~30 days. Keep only for back-compat:
-#   rhcs_token = "..."
-# or TF_VAR_rhcs_token.
+# (Offline tokens are deprecated by Red Hat and no longer supported here.)
 
 # Create admin user
 create_admin_user = true

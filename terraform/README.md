@@ -47,7 +47,8 @@ terraform/
 |--------|-------------|
 | `AWS_ACCESS_KEY_ID` | AWS access key |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key |
-| `RHCS_TOKEN` | Red Hat Cloud Services offline token |
+| `RHCS_CLIENT_ID` | RHCS service-account client ID |
+| `RHCS_CLIENT_SECRET` | RHCS service-account client secret |
 | `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password (see requirements below) |
 
 ### Admin Password Requirements
@@ -89,8 +90,10 @@ aws s3api put-bucket-versioning \
 ```bash
 cd terraform
 
-# Set sensitive variables
-export TF_VAR_rhcs_token="your-rhcs-token"
+# Set sensitive variables (RHCS service-account credentials from
+# https://console.redhat.com/iam/service-accounts)
+export TF_VAR_rhcs_client_id="your-rhcs-client-id"
+export TF_VAR_rhcs_client_secret="your-rhcs-client-secret"
 export TF_VAR_admin_password="your-secure-password"
 
 # Initialize for dev environment

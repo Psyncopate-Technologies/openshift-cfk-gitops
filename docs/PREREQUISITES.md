@@ -7,10 +7,12 @@ This document outlines the prerequisites for deploying the OpenShift CFK GitOps 
 ### Red Hat Account
 1. Create an account at [cloud.redhat.com](https://cloud.redhat.com)
 2. Enable ROSA (Red Hat OpenShift Service on AWS)
-3. Generate an offline token for RHCS API access:
-   - Navigate to [Red Hat API tokens](https://cloud.redhat.com/openshift/token/rosa)
-   - Click "Load token" or "Generate token"
-   - Save the token as `RHCS_TOKEN` GitHub secret
+3. Create a service account for RHCS API access (offline tokens are
+   deprecated and not supported by this repo):
+   - Navigate to [Service Accounts](https://console.redhat.com/iam/service-accounts)
+   - Create a new service account
+   - Copy the **Client ID** → save as `RHCS_CLIENT_ID` GitHub secret
+   - Copy the **Client Secret** → save as `RHCS_CLIENT_SECRET` GitHub secret
 
 ### AWS Account
 Required permissions:
@@ -31,7 +33,8 @@ Navigate to Settings > Secrets and variables > Actions and add:
 |--------|-------------|----------|
 | `AWS_ACCESS_KEY_ID` | AWS access key | Yes |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key | Yes |
-| `RHCS_TOKEN` | Red Hat Cloud Services token | Yes |
+| `RHCS_CLIENT_ID` | RHCS service-account client ID | Yes |
+| `RHCS_CLIENT_SECRET` | RHCS service-account client secret | Yes |
 | `OPENSHIFT_ADMIN_PASSWORD` | Generated after cluster creation | After workflow 01 |
 
 ### Getting the Secrets
@@ -42,10 +45,14 @@ Navigate to Settings > Secrets and variables > Actions and add:
 3. Attach policy: `AdministratorAccess` (or create a custom ROSA policy)
 4. Save the Access Key ID and Secret Access Key
 
-#### RHCS Token
-1. Go to https://cloud.redhat.com/openshift/token/rosa
-2. Click "Load token" or "Generate token"
-3. Copy the token value
+#### RHCS Service-Account Credentials
+1. Go to https://console.redhat.com/iam/service-accounts
+2. Click "Create service account", give it a name
+3. Copy the **Client ID** and **Client Secret** values
+4. Add as `RHCS_CLIENT_ID` and `RHCS_CLIENT_SECRET` GitHub secrets
+
+The `rhcs` Terraform provider (>= 1.6) and recent ROSA CLI versions
+both authenticate via these directly — no manual token minting needed.
 
 #### OpenShift Admin Password
 1. Run workflow **01-provision-rosa**
@@ -69,8 +76,8 @@ If you want to verify prerequisites locally:
 brew install rosa-cli  # macOS
 # or download from https://github.com/openshift/rosa/releases
 
-# Login to ROSA
-rosa login --token="$RHCS_TOKEN"
+# Login to ROSA (service-account credentials)
+rosa login --client-id="$RHCS_CLIENT_ID" --client-secret="$RHCS_CLIENT_SECRET"
 
 # Verify AWS credentials
 rosa verify quota

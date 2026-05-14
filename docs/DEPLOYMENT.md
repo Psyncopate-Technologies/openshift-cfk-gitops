@@ -13,7 +13,8 @@ Before starting, ensure you have:
 1. **GitHub Secrets configured** (see [PREREQUISITES.md](PREREQUISITES.md)):
    - `AWS_ACCESS_KEY_ID`
    - `AWS_SECRET_ACCESS_KEY`
-   - `RHCS_TOKEN`
+   - `RHCS_CLIENT_ID`
+   - `RHCS_CLIENT_SECRET`
    - `OPENSHIFT_ADMIN_PASSWORD`
    - `DOCKER_HUB_USERNAME`
    - `DOCKER_HUB_TOKEN`

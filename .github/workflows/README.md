@@ -51,7 +51,8 @@ Configure these secrets in your GitHub repository (Settings > Secrets > Actions)
 |--------|-------------|------------|
 | `AWS_ACCESS_KEY_ID` | AWS access key | AWS IAM Console |
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key | AWS IAM Console |
-| `RHCS_TOKEN` | Red Hat Cloud Services token | [Get Token](https://cloud.redhat.com/openshift/token/rosa) |
+| `RHCS_CLIENT_ID` | RHCS service-account client ID | [Service Accounts](https://console.redhat.com/iam/service-accounts) |
+| `RHCS_CLIENT_SECRET` | RHCS service-account client secret | Shown once at service-account creation |
 | `OPENSHIFT_ADMIN_PASSWORD` | Cluster admin password | Created by workflow 01 |
 | `DOCKER_HUB_USERNAME` | Docker Hub username | For pulling images |
 | `DOCKER_HUB_TOKEN` | Docker Hub access token | Docker Hub settings |
